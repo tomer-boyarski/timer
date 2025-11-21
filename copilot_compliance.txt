@@ -1,0 +1,13 @@
+For every prompt, make a todo list.  
+In each task:
+
+Exclude all non-ASCII symbols from code files.  
+Always use PEP 484 type hints and include PEP 257-compliant docstrings in every top-level class or function.  
+Never create or edit .md files except README.md (under 200 lines, high-level only).  
+Add this line to every module and top-level function/class docstring: "See copilot_compliance in the root for code standards."  
+Fix all Pylance lint errors and verify with mypy.  
+Run the command from src/utils/find_largest_py.ps1, and if the output is:
+  0–300 lines → keep as single module
+  301–600 lines → refactor into a package
+  >601 lines → refactor into a nested package
+Run this command again and again until all files comply.
