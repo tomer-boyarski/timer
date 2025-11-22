@@ -8,10 +8,10 @@ from src.tts import speak_text, test_tts_availability
 from src.time_utils import parse_time_string, format_time, format_time_announcement
 from src.announcements import generate_announcement_intervals
 from src.display import display_timer_info
-from src.__main__ import timer
+from src.ui import launch_timer_ui
 
 __all__ = [
-    "timer",
+    "launch_timer_ui",
     "speak_text",
     "test_tts_availability",
     "parse_time_string",

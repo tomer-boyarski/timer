@@ -89,7 +89,7 @@ def speak_text(text: str, num_repetitions: int = 1) -> float:
 
     Args:
         text: Text to be spoken
-        num_repetitions: Number of times to repeat text (default: 4)
+        num_repetitions: Number of times to repeat text (default: 1)
 
     Returns:
         Time taken to speak
