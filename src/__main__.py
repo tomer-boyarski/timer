@@ -13,7 +13,7 @@ def main() -> None:
 
     See copilot_compliance in the root for code standards.
     """
-    launch_timer_ui("6m55s")
+    launch_timer_ui(prep_duration="3s", main_duration="6m55s")
 
 
 if __name__ == "__main__":

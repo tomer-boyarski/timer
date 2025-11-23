@@ -1,0 +1,7 @@
+add small time of day on top right corner. maybe just round to hour in am-pm format.
+
+how to overcome unknown hardware delay without feedback from old speakers? 
+keep connection open to keep capacitors charged? 
+prepare entire sound file in advance, then send to speaker as single file?
+
+
