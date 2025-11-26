@@ -1,0 +1,27 @@
+{
+    "prep_duration": "20s",
+    "main_duration": "6m55s",
+    "audio_offset": 0,
+    "stages": [
+        {
+            "name": "countdown",
+            "duration_threshold": 10,
+            "announcement_interval": 1,
+            "verbosity": "low"
+        },
+        {
+            "name": "one_minute",
+            "duration_threshold": 60,
+            "announcement_interval": 10,
+            "verbosity": "high"
+        },
+        {
+            "name": "everything",
+            "duration_threshold": 0,
+            "announcement_interval": 60,
+            "verbosity": "high"
+        }
+    ],
+    "tts_rate_normal": 180,
+    "tts_rate_countdown": 250
+}
