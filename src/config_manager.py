@@ -108,7 +108,9 @@ class ConfigManager:
         except IOError as e:
             print(f"Error saving settings: {e}")
 
-    def get_stage_config(self, settings: Optional[Dict[str, Any]] = None) -> StageConfig:
+    def get_stage_config(
+        self, settings: Optional[Dict[str, Any]] = None
+    ) -> StageConfig:
         """
         Get StageConfig from settings.
 

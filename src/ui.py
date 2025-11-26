@@ -251,9 +251,9 @@ class StageRow(tk.Frame):
         )
         self.int_mins_entry.pack(side=tk.LEFT)
 
-        tk.Label(
-            self.interval_frame, text=":", font=("Arial", 12), fg=fg, bg=bg
-        ).pack(side=tk.LEFT)
+        tk.Label(self.interval_frame, text=":", font=("Arial", 12), fg=fg, bg=bg).pack(
+            side=tk.LEFT
+        )
 
         self.int_secs_var = tk.StringVar(value=f"{int_secs:02d}")
         self.int_secs_entry = tk.Entry(
@@ -747,9 +747,9 @@ class TimerWindow:
             )
 
             # Start timer on main thread
-            self.root.after(0, lambda: self.start_timer(
-                prep_duration, main_duration, audio_offset
-            ))
+            self.root.after(
+                0, lambda: self.start_timer(prep_duration, main_duration, audio_offset)
+            )
 
         thread = threading.Thread(target=generate_and_start, daemon=True)
         thread.start()

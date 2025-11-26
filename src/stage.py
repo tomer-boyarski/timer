@@ -132,9 +132,7 @@ class StageConfig:
         # Return the "everything" stage (threshold=0) as fallback
         return self.stages[-1]
 
-    def generate_announcements(
-        self, total_seconds: int
-    ) -> List[Tuple[int, str]]:
+    def generate_announcements(self, total_seconds: int) -> List[Tuple[int, str]]:
         """
         Generate list of announcements for a timer duration.
 
@@ -167,9 +165,8 @@ class StageConfig:
             while current > end:
                 # Round to nearest interval
                 announcement_time = (
-                    (current // stage.announcement_interval)
-                    * stage.announcement_interval
-                )
+                    current // stage.announcement_interval
+                ) * stage.announcement_interval
 
                 if (
                     announcement_time > end

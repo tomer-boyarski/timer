@@ -63,9 +63,7 @@ class AudioGenerator:
         # 16-bit silence = 0
         return struct.pack("<" + "h" * num_samples, *([0] * num_samples))
 
-    def _generate_speech_audio(
-        self, text: str, rate: int
-    ) -> Tuple[bytes, float]:
+    def _generate_speech_audio(self, text: str, rate: int) -> Tuple[bytes, float]:
         """
         Generate speech audio using pyttsx3 and save to temp WAV.
 
@@ -117,9 +115,7 @@ class AudioGenerator:
             # Return short silence on error
             return self._generate_silence(0.5), 0.5
 
-    def _resample(
-        self, audio_bytes: bytes, from_rate: int, to_rate: int
-    ) -> bytes:
+    def _resample(self, audio_bytes: bytes, from_rate: int, to_rate: int) -> bytes:
         """
         Simple resampling by linear interpolation.
 
@@ -310,7 +306,9 @@ class AudioPlayer:
         self._playing = False
         self._play_thread: Optional[threading.Thread] = None
 
-    def play_file(self, file_path: str, on_complete: Optional[Callable[[], None]] = None) -> None:
+    def play_file(
+        self, file_path: str, on_complete: Optional[Callable[[], None]] = None
+    ) -> None:
         """
         Play audio file in background thread.
 
