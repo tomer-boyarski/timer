@@ -1,6 +1,6 @@
 {
-    "prep_duration": "12s",
-    "main_duration": "22s",
+    "prep_duration": "25s",
+    "main_duration": "7m20s",
     "audio_offset": 1,
     "stages": [
         {

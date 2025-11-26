@@ -608,7 +608,7 @@ class AudioTimer:
 
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        font_size = int(min(screen_width, screen_height) * 0.5)
+        font_size = int(min(screen_width, screen_height) * 0.25)
 
         self.label = tk.Label(
             self.root,
