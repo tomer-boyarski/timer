@@ -61,33 +61,33 @@ Layout:
 
 ## Implementation Phases (Git Branches)
 
-### Phase 1: `feature/stage-model`
+### Phase 1: `feature/stage-model` ✅ COMPLETE
 - Create `Stage` dataclass with duration, interval, verbosity
 - Create `StageConfig` class to manage stage-based announcements
 - Create `AnnouncementGenerator` to produce list of (timestamp, text) tuples
 - Unit tests for stage logic
 
-### Phase 2: `feature/audio-generation`
+### Phase 2: `feature/audio-generation` ✅ COMPLETE
 - Create `AudioGenerator` class
 - Generate TTS audio segments with pyttsx3
 - Compose WAV file with silence and speech at correct timestamps
 - Script to test/calibrate TTS speech rate for final countdown
 - Save audio to temp file
 
-### Phase 3: `feature/config-system`
+### Phase 3: `feature/config-system` ✅ COMPLETE
 - Create `config/` directory structure
 - Create `ConfigManager` class for JSON read/write
 - Default settings with stage configurations
 - CSV announcement file support (optional override)
 
-### Phase 4: `feature/config-ui`
+### Phase 4: `feature/config-ui` ✅ COMPLETE
 - Redesign `TimerWindow` start screen to configuration screen
 - Two columns: prep timer (left), main timer (right)
 - Duration inputs in MM:SS format
 - Stage configuration table with dropdowns
 - Save settings on START click
 
-### Phase 5: `feature/audio-visual-sync`
+### Phase 5: `feature/audio-visual-sync` ✅ COMPLETE
 - Integrate audio playback with timer display
 - Start audio file, then start visual timer after offset
 - Remove real-time TTS calls during timer

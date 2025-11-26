@@ -6,11 +6,10 @@ See copilot_compliance in the root for code standards.
 
 import json
 import csv
-import os
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
-from src.stage import Stage, StageConfig
+from src.stage import StageConfig
 
 
 class ConfigManager:

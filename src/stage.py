@@ -5,7 +5,7 @@ See copilot_compliance in the root for code standards.
 """
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Set, Dict, Any
 
 
 @dataclass
@@ -148,7 +148,7 @@ class StageConfig:
             sorted by remaining_seconds descending (earliest first in time)
         """
         announcements: List[Tuple[int, str]] = []
-        processed_times: set = set()
+        processed_times: Set[int] = set()
 
         # Process each stage
         for stage in self.stages:
@@ -207,7 +207,7 @@ class StageConfig:
                 found_current = True
         return 0
 
-    def to_dict(self) -> List[dict]:
+    def to_dict(self) -> List[Dict[str, Any]]:
         """
         Convert stages to dictionary format for JSON serialization.
 
@@ -227,7 +227,7 @@ class StageConfig:
         ]
 
     @classmethod
-    def from_dict(cls, data: List[dict]) -> "StageConfig":
+    def from_dict(cls, data: List[Dict[str, Any]]) -> "StageConfig":
         """
         Create StageConfig from dictionary format.
 

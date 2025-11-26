@@ -2,6 +2,10 @@
 Announcement generation and management logic.
 
 See copilot_compliance in the root for code standards.
+
+NOTE: This module contains legacy exponential interval generation.
+The new stage-based announcement system is in src/stage.py.
+This file is kept for backwards compatibility but may be removed in future.
 """
 
 from typing import Union, List
@@ -14,9 +18,11 @@ def generate_announcement_intervals(
     multiplier: Union[int, float],
 ) -> List[int]:
     """
-    Generate exponential announcement intervals.
+    Generate exponential announcement intervals (LEGACY).
 
     See copilot_compliance in the root for code standards.
+
+    NOTE: This function is deprecated. Use StageConfig from src/stage.py instead.
 
     Args:
         total_seconds: Total timer duration in seconds
