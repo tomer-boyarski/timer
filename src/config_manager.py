@@ -59,7 +59,7 @@ class ConfigManager:
         return {
             "prep_duration": "20s",
             "main_duration": "6m55s",
-            "audio_offset": 0,
+            "audio_offset": 1,
             "stages": StageConfig.default().to_dict(),
             "tts_rate_normal": 180,
             "tts_rate_countdown": 250,

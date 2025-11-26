@@ -1,7 +1,7 @@
 {
     "prep_duration": "12s",
     "main_duration": "22s",
-    "audio_offset": 0,
+    "audio_offset": 1,
     "stages": [
         {
             "name": "one_minute",

@@ -189,7 +189,7 @@ class ConfigManager:
 {
     "prep_duration": "20s",
     "main_duration": "6m55s",
-    "audio_offset": 0,
+    "audio_offset": 1,
     "stages": [
         {
             "name": "countdown",
