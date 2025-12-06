@@ -53,7 +53,8 @@ class AudioService {
 
     if (!_isWindows) {
       await _tts.setLanguage('en-US');
-      await _tts.setRate(0.5);
+      // Double speed: 0.8 instead of 0.5
+      await _tts.setRate(0.8);
       await _tts.setVolume(1.0);
       await _tts.setPitch(1.0);
     }
@@ -64,6 +65,7 @@ class AudioService {
   bool get _isWindows => !kIsWeb && Platform.isWindows;
 
   /// Generate all announcements for the given stages with absolute timing
+  /// Skips countdown for stages less than 10 seconds
   List<Announcement> generateTimedAnnouncements(List<Stage> stages) {
     final announcements = <Announcement>[];
     var stageStartOffset = 0.0;
@@ -78,20 +80,23 @@ class AudioService {
         isStageTitle: true,
       ));
 
-      // Regular announcements from sub-stages
-      final stageAnnouncements = stage.generateAnnouncements();
-      for (final (remaining, text) in stageAnnouncements) {
-        // Calculate absolute time from total start
-        final absoluteTime = stageStartOffset + stageDuration - remaining;
+      // Only add regular announcements if stage is >= 10 seconds
+      if (stage.durationSeconds >= 10) {
+        // Regular announcements from sub-stages
+        final stageAnnouncements = stage.generateAnnouncements();
+        for (final (remaining, text) in stageAnnouncements) {
+          // Calculate absolute time from total start
+          final absoluteTime = stageStartOffset + stageDuration - remaining;
 
-        // Check if this is a countdown number (1-10)
-        final isCountdown = _isCountdownNumber(text);
+          // Check if this is a countdown number (1-10)
+          final isCountdown = _isCountdownNumber(text);
 
-        announcements.add(Announcement(
-          timeFromStart: absoluteTime,
-          text: text,
-          isCountdown: isCountdown,
-        ));
+          announcements.add(Announcement(
+            timeFromStart: absoluteTime,
+            text: text,
+            isCountdown: isCountdown,
+          ));
+        }
       }
 
       stageStartOffset += stageDuration;
@@ -184,58 +189,70 @@ class AudioService {
   }
 
   /// Generate speech audio using Windows SAPI via PowerShell
-  Future<Uint8List> _generateSpeechWindows(String text,
+  /// Returns audio bytes and actual duration
+  Future<(Uint8List, double)> _generateSpeechWindows(String text,
       {bool fast = false}) async {
     final tempDir = await getTemporaryDirectory();
     final tempPath =
-        '${tempDir.path}/tts_temp_${DateTime.now().millisecondsSinceEpoch}.wav';
+        '${tempDir.path}\\tts_temp_${DateTime.now().millisecondsSinceEpoch}.wav';
 
-    // Escape text for PowerShell
-    final escapedText = text.replaceAll("'", "''");
+    // Escape text for PowerShell - escape both single quotes and special chars
+    final escapedText =
+        text.replaceAll("'", "''").replaceAll('\n', ' ').replaceAll('\r', ' ');
 
-    // Use faster rate for countdown numbers (rate 5-10 is fast, 0 is slow)
-    // For ~0.5s per number, we need rate around 7-8
-    final rate = fast ? 7 : 2;
+    // SAPI rate: -10 to 10, higher is faster
+    // Rate 4 is normal-fast, rate 8 is very fast for countdown
+    // Double the speed: normal was 2, now 4; fast was 7, now 10
+    final rate = fast ? 10 : 4;
 
     // PowerShell script to generate WAV using SAPI
+    // Use -NoProfile -NonInteractive for faster execution
     final script = '''
 Add-Type -AssemblyName System.Speech
 \$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
 \$synth.Rate = $rate
-\$synth.SetOutputToWaveFile('$tempPath')
-\$synth.Speak('$escapedText')
+\$synth.SetOutputToWaveFile("$tempPath")
+\$synth.Speak("$escapedText")
 \$synth.Dispose()
 ''';
 
     try {
+      debugPrint('Generating TTS for: "$text" (rate=$rate)');
+
       final result = await Process.run(
-        'powershell',
-        ['-Command', script],
-        runInShell: true,
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', script],
       );
 
       if (result.exitCode != 0) {
         debugPrint('PowerShell TTS error: ${result.stderr}');
-        return _generateSilence(0.5);
+        return (_generateSilence(0.3), 0.3);
       }
 
       // Read the generated WAV file
       final file = File(tempPath);
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
-        await file.delete();
 
-        // Extract audio data (skip 44-byte header if present)
+        // Clean up temp file
+        try {
+          await file.delete();
+        } catch (_) {}
+
+        // Extract audio data and calculate duration
         if (bytes.length > 44) {
-          // Resample to our target sample rate if needed
-          return _extractAndResampleWav(bytes);
+          final audioData = _extractAndResampleWav(bytes);
+          final duration = audioData.length / (sampleRate * 2);
+          debugPrint(
+              'Generated ${duration.toStringAsFixed(2)}s audio for "$text"');
+          return (audioData, duration);
         }
       }
     } catch (e) {
       debugPrint('Error generating speech: $e');
     }
 
-    return _generateSilence(0.5);
+    return (_generateSilence(0.3), 0.3);
   }
 
   /// Extract audio data from WAV and resample to target sample rate
@@ -261,10 +278,14 @@ Add-Type -AssemblyName System.Speech
   /// Resample audio data using linear interpolation
   Uint8List _resample(Uint8List audioBytes, int fromRate, int toRate) {
     final numSamples = audioBytes.length ~/ 2;
+    if (numSamples == 0) return Uint8List(0);
+
     final samples = Int16List.view(audioBytes.buffer);
 
     final ratio = toRate / fromRate;
     final newLength = (numSamples * ratio).round();
+    if (newLength == 0) return Uint8List(0);
+
     final resampled = Int16List(newLength);
 
     for (int i = 0; i < newLength; i++) {
@@ -284,18 +305,23 @@ Add-Type -AssemblyName System.Speech
   }
 
   /// Generate complete audio file for all stages (Windows only)
-  Future<String> generateFullAudio(
-    List<Stage> stages,
-    int ttsRateNormal,
-    int ttsRateCountdown,
-  ) async {
+  Future<String> generateFullAudio(List<Stage> stages) async {
+    debugPrint('Starting audio generation for ${stages.length} stages');
+
     final announcements = generateTimedAnnouncements(stages);
     final totalDuration = stages.fold(0, (sum, s) => sum + s.durationSeconds);
+
+    debugPrint('Total announcements: ${announcements.length}');
+    debugPrint('Total duration: ${totalDuration}s');
 
     final audioChunks = <Uint8List>[];
     var currentPosition = 0.0;
 
-    for (final announcement in announcements) {
+    for (int i = 0; i < announcements.length; i++) {
+      final announcement = announcements[i];
+      debugPrint(
+          'Processing announcement ${i + 1}/${announcements.length}: "${announcement.text}" at ${announcement.timeFromStart}s');
+
       // Add silence up to this announcement
       final silenceDuration = announcement.timeFromStart - currentPosition;
       if (silenceDuration > 0.01) {
@@ -304,17 +330,14 @@ Add-Type -AssemblyName System.Speech
       }
 
       // Generate speech
-      final speechAudio = await _generateSpeechWindows(
+      final (speechAudio, speechDuration) = await _generateSpeechWindows(
         announcement.text,
         fast: announcement.isCountdown,
       );
       audioChunks.add(speechAudio);
-
-      // Estimate speech duration based on audio length
-      final speechDuration = speechAudio.length / (sampleRate * 2);
       currentPosition += speechDuration;
 
-      // Notify about announcement
+      // Notify about announcement (during generation)
       onAnnouncementSpoken?.call(announcement.text);
     }
 
@@ -326,6 +349,8 @@ Add-Type -AssemblyName System.Speech
 
     // Combine all audio chunks
     final totalBytes = audioChunks.fold(0, (sum, chunk) => sum + chunk.length);
+    debugPrint('Total audio bytes: $totalBytes');
+
     final combinedAudio = Uint8List(totalBytes);
     var offset = 0;
     for (final chunk in audioChunks) {
@@ -336,18 +361,20 @@ Add-Type -AssemblyName System.Speech
     // Create WAV file
     final tempDir = await getTemporaryDirectory();
     final outputPath =
-        '${tempDir.path}/timer_audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+        '${tempDir.path}\\timer_audio_${DateTime.now().millisecondsSinceEpoch}.wav';
 
     final header = _createWavHeader(combinedAudio.length);
     final wavFile = File(outputPath);
     await wavFile.writeAsBytes([...header, ...combinedAudio]);
 
+    debugPrint('Audio file saved to: $outputPath');
     _generatedAudioPath = outputPath;
     return outputPath;
   }
 
   /// Start audio playback (returns when audio starts)
   Future<void> startAudioPlayback(String audioPath) async {
+    debugPrint('Starting audio playback: $audioPath');
     await _audioPlayer.setFilePath(audioPath);
     await _audioPlayer.play();
   }
@@ -357,14 +384,16 @@ Add-Type -AssemblyName System.Speech
     await initialize();
     if (_isWindows) {
       // On Windows, use PowerShell for immediate TTS
+      // Doubled speed: rate 4 instead of 2
       final script = '''
 Add-Type -AssemblyName System.Speech
 \$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-\$synth.Rate = 2
-\$synth.Speak('${text.replaceAll("'", "''")}')
+\$synth.Rate = 4
+\$synth.Speak("${text.replaceAll('"', '`"')}")
 \$synth.Dispose()
 ''';
-      await Process.run('powershell', ['-Command', script], runInShell: true);
+      await Process.run('powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-Command', script]);
     } else {
       await _tts.start(text);
     }
@@ -382,15 +411,25 @@ Add-Type -AssemblyName System.Speech
     await initialize();
 
     if (_isWindows) {
-      // Windows: Generate audio file first
-      final audioPath = await generateFullAudio(stages, 180, 250);
+      try {
+        // Windows: Generate audio file first
+        debugPrint('Windows mode: generating audio file...');
+        final audioPath = await generateFullAudio(stages);
+        debugPrint('Audio generated, starting playback...');
 
-      // Start audio playback
-      await startAudioPlayback(audioPath);
+        // Start audio playback
+        await startAudioPlayback(audioPath);
+        debugPrint('Audio playback started, waiting for offset...');
 
-      // After offset, start the visual timer
-      await Future.delayed(audioOffset);
-      onTimerStart();
+        // After offset, start the visual timer
+        await Future.delayed(audioOffset);
+        debugPrint('Starting visual timer');
+        onTimerStart();
+      } catch (e) {
+        debugPrint('Error in Windows audio playback: $e');
+        // Fallback: start timer without audio
+        onTimerStart();
+      }
     } else {
       // Other platforms: Use real-time TTS with scheduled timers
       onTimerStart();

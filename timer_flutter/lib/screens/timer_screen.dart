@@ -1,12 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import '../services/services.dart';
+import 'package:just_audio/just_audio.dart';
+import '../models/models.dart';
+import '../services/audio_service.dart';
 
-/// Timer display screen showing countdown with large text and progress bar.
 class TimerScreen extends StatefulWidget {
-  final TimerConfig config;
+  final List<Stage> stages;
 
-  const TimerScreen({super.key, required this.config});
+  const TimerScreen({super.key, required this.stages});
 
   @override
   State<TimerScreen> createState() => _TimerScreenState();
@@ -14,149 +16,199 @@ class TimerScreen extends StatefulWidget {
 
 class _TimerScreenState extends State<TimerScreen> {
   final AudioService _audioService = AudioService();
-  Timer? _timer;
-  DateTime? _startTime;
-  int _currentStageIndex = 0;
-  int _currentStageRemaining = 0;
-  bool _isFinished = false;
-  bool _isGeneratingAudio = true;
-  String? _lastAnnouncement;
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
-  // Total elapsed time in seconds (for progress bar)
-  double _totalElapsedSeconds = 0.0;
+  bool _isGeneratingAudio = false;
+  bool _isRunning = false;
+  bool _isPaused = false;
+  String? _audioFilePath;
+
+  // Timer state
+  int _currentStageIndex = 0;
+  int _stageElapsedSeconds = 0; // Elapsed seconds within current stage
+  int _totalElapsedSeconds = 0;
+  Timer? _timer;
+
+  // Computed values
+  int get _totalDurationSeconds =>
+      widget.stages.fold(0, (sum, s) => sum + s.durationSeconds);
+  Stage get _currentStage => widget.stages[_currentStageIndex];
+  int get _stageRemainingSeconds =>
+      _currentStage.durationSeconds - _stageElapsedSeconds;
+  int get _totalRemainingSeconds =>
+      _totalDurationSeconds - _totalElapsedSeconds;
+
+  // Progress is now per-stage (0.0 to 1.0)
+  double get _stageProgressPercent {
+    if (_currentStage.durationSeconds == 0) return 0.0;
+    return (_stageElapsedSeconds / _currentStage.durationSeconds)
+        .clamp(0.0, 1.0);
+  }
 
   @override
   void initState() {
     super.initState();
-    _startTimer();
-  }
-
-  void _startTimer() async {
-    await _audioService.initialize();
-
-    // Set up announcement callback
-    _audioService.onAnnouncementSpoken = (text) {
-      if (!mounted) return;
-      setState(() {
-        _lastAnnouncement = text;
-      });
-      // Clear after 2 seconds
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted && _lastAnnouncement == text) {
-          setState(() {
-            _lastAnnouncement = null;
-          });
-        }
-      });
-    };
-
-    // Initialize timer state
-    _currentStageIndex = 0;
-    _currentStageRemaining = widget.config.stages[0].durationSeconds;
-
-    // Start audio announcements with platform-specific offset
-    // On Windows, this generates the audio file first, then calls the callback
-    await _audioService.startAnnouncementPlayback(
-      widget.config.stages,
-      Duration(milliseconds: (widget.config.audioOffset * 1000).round()),
-      () {
-        // This callback is called when the visual timer should start
-        if (!mounted) return;
-        setState(() {
-          _isGeneratingAudio = false;
-        });
-        _startTime = DateTime.now();
-
-        // Update display every 100ms
-        _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-          _updateTimer();
-        });
-      },
-    );
-  }
-
-  void _updateTimer() {
-    if (_startTime == null || _isFinished) return;
-
-    final elapsed = DateTime.now().difference(_startTime!);
-    final totalElapsedSeconds = elapsed.inMilliseconds / 1000;
-
-    setState(() {
-      _totalElapsedSeconds = totalElapsedSeconds;
-    });
-
-    // Find current stage and remaining time
-    var stageStartOffset = 0;
-    for (int i = 0; i < widget.config.stages.length; i++) {
-      final stage = widget.config.stages[i];
-      final stageEnd = stageStartOffset + stage.durationSeconds;
-
-      if (totalElapsedSeconds < stageEnd) {
-        final stageElapsed = totalElapsedSeconds - stageStartOffset;
-        final remaining = stage.durationSeconds - stageElapsed;
-
-        setState(() {
-          _currentStageIndex = i;
-          _currentStageRemaining = remaining.ceil();
-        });
-        return;
-      }
-
-      stageStartOffset = stageEnd;
-    }
-
-    // All stages complete
-    setState(() {
-      _isFinished = true;
-      _currentStageRemaining = 0;
-    });
-    _timer?.cancel();
-  }
-
-  String _formatTime(int seconds) {
-    final mins = seconds ~/ 60;
-    final secs = seconds % 60;
-    return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-  }
-
-  int get _totalDurationSeconds {
-    return widget.config.stages
-        .fold(0, (sum, stage) => sum + stage.durationSeconds);
-  }
-
-  double get _progressPercent {
-    if (_totalDurationSeconds == 0) return 0.0;
-    return (_totalElapsedSeconds / _totalDurationSeconds).clamp(0.0, 1.0);
+    _generateAudioAndStart();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _audioService.dispose();
+    _audioPlayer.dispose();
+    // Clean up audio file
+    if (_audioFilePath != null) {
+      try {
+        File(_audioFilePath!).deleteSync();
+      } catch (_) {}
+    }
     super.dispose();
+  }
+
+  Future<void> _generateAudioAndStart() async {
+    setState(() {
+      _isGeneratingAudio = true;
+    });
+
+    try {
+      // Generate the audio file using Windows SAPI
+      final audioPath = await _audioService.generateFullAudio(widget.stages);
+
+      if (mounted) {
+        _audioFilePath = audioPath;
+
+        // Load and start playing
+        await _audioPlayer.setFilePath(audioPath);
+        await _audioPlayer.play();
+
+        setState(() {
+          _isGeneratingAudio = false;
+          _isRunning = true;
+        });
+
+        _startTimer();
+      } else if (mounted) {
+        // Audio generation failed, but we can still run the timer silently
+        setState(() {
+          _isGeneratingAudio = false;
+          _isRunning = true;
+        });
+        _startTimer();
+      }
+    } catch (e) {
+      debugPrint('Error generating audio: $e');
+      if (mounted) {
+        // Start timer anyway without audio
+        setState(() {
+          _isGeneratingAudio = false;
+          _isRunning = true;
+        });
+        _startTimer();
+      }
+    }
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!_isPaused && mounted) {
+        setState(() {
+          _totalElapsedSeconds++;
+          _stageElapsedSeconds++;
+
+          // Check if current stage is complete
+          if (_stageElapsedSeconds >= _currentStage.durationSeconds) {
+            if (_currentStageIndex < widget.stages.length - 1) {
+              // Move to next stage
+              _currentStageIndex++;
+              _stageElapsedSeconds = 0;
+            } else {
+              // Timer complete
+              _timer?.cancel();
+              _isRunning = false;
+              _showCompletionDialog();
+            }
+          }
+        });
+      }
+    });
+  }
+
+  void _togglePause() {
+    setState(() {
+      _isPaused = !_isPaused;
+    });
+
+    if (_isPaused) {
+      _audioPlayer.pause();
+    } else {
+      _audioPlayer.play();
+    }
+  }
+
+  void _stop() {
+    _timer?.cancel();
+    _audioPlayer.stop();
+    Navigator.of(context).pop();
+  }
+
+  void _showCompletionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Timer Complete!'),
+        content: const Text('All stages have been completed.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pop(); // Return to config
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(int totalSeconds) {
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final fontSize = screenSize.shortestSide * 0.35;
-
-    // Show loading screen while generating audio on Windows
     if (_isGeneratingAudio) {
       return Scaffold(
-        backgroundColor: Colors.black,
+        appBar: AppBar(
+          title: const Text('Preparing Timer'),
+        ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const CircularProgressIndicator(color: Colors.white),
+              const CircularProgressIndicator(),
               const SizedBox(height: 24),
-              Text(
-                'Generating audio...',
-                style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: 18,
-                ),
+              const Text(
+                'Generating audio announcements...',
+                style: TextStyle(fontSize: 18),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () {
+                  // Allow user to skip audio generation
+                  setState(() {
+                    _isGeneratingAudio = false;
+                    _isRunning = true;
+                  });
+                  _startTimer();
+                },
+                child: const Text('Skip (run without audio)'),
               ),
             ],
           ),
@@ -164,215 +216,121 @@ class _TimerScreenState extends State<TimerScreen> {
       );
     }
 
-    if (_isFinished) {
-      return Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: Text(
-            'FINISHED',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: screenSize.shortestSide * 0.12,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      );
-    }
-
-    final currentStage = _currentStageIndex < widget.config.stages.length
-        ? widget.config.stages[_currentStageIndex]
-        : null;
-
-    // Calculate progress bar dimensions based on timer text size
-    final timerTextHeight = fontSize * 0.8; // Approximate text height
-    final progressBarHeight = timerTextHeight * 0.5;
-    final progressBarBorderWidth = fontSize * 0.05;
-
-    // Calculate progress percentages
-    final percentComplete = _progressPercent * 100;
-    final percentRemaining = (1 - _progressPercent) * 100;
+    final percentComplete = _stageProgressPercent * 100;
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
+      appBar: AppBar(
+        title: Text('Stage ${_currentStageIndex + 1}: ${_currentStage.title}'),
+        automaticallyImplyLeading: false,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Main timer display
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Stage title
-                  if (currentStage != null)
+            // Stage info card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
                     Text(
-                      currentStage.title,
-                      style: TextStyle(
-                        color: Colors.grey[400],
-                        fontSize: 32,
-                        fontWeight: FontWeight.w300,
-                      ),
+                      _currentStage.title,
+                      style: Theme.of(context).textTheme.headlineMedium,
                     ),
-                  const SizedBox(height: 20),
-                  // Time remaining
-                  Text(
-                    _formatTime(_currentStageRemaining),
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: fontSize,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
+                    const SizedBox(height: 8),
+                    Text(
+                      'Stage ${_currentStageIndex + 1} of ${widget.stages.length}',
+                      style: Theme.of(context).textTheme.bodyLarge,
                     ),
-                  ),
-                  const SizedBox(height: 30),
-                  // Progress bar with percentage labels
-                  Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: screenSize.width * 0.1,
-                    ),
-                    child: _buildProgressBar(
-                      progressBarHeight: progressBarHeight,
-                      borderWidth: progressBarBorderWidth,
-                      percentComplete: percentComplete,
-                      percentRemaining: percentRemaining,
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                  // Stage progress indicator (dots)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      widget.config.stages.length,
-                      (index) => Container(
-                        width: 12,
-                        height: 12,
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: index < _currentStageIndex
-                              ? Colors.green
-                              : index == _currentStageIndex
-                                  ? Colors.white
-                                  : Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Announcement overlay
-            if (_lastAnnouncement != null)
-              Positioned(
-                bottom: 100,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.8),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      _lastAnnouncement!,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  ],
                 ),
               ),
-            // Back button
-            Positioned(
-              top: 16,
-              left: 16,
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () {
-                  _timer?.cancel();
-                  _audioService.stop();
-                  Navigator.of(context).pop();
-                },
+            ),
+
+            const SizedBox(height: 32),
+
+            // Stage time remaining (large display)
+            Center(
+              child: Text(
+                _formatTime(_stageRemainingSeconds),
+                style: const TextStyle(
+                  fontSize: 72,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                ),
               ),
             ),
+
+            const SizedBox(height: 8),
+
+            // Total time remaining (smaller)
+            Center(
+              child: Text(
+                'Total: ${_formatTime(_totalRemainingSeconds)}',
+                style: TextStyle(
+                  fontSize: 24,
+                  color: Colors.grey[600],
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // Stage progress bar
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Stage Progress: ${percentComplete.toStringAsFixed(0)}%',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: _stageProgressPercent,
+                    minHeight: 20,
+                    backgroundColor: Colors.grey[300],
+                  ),
+                ),
+              ],
+            ),
+
+            const Spacer(),
+
+            // Control buttons
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _togglePause,
+                  icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
+                  label: Text(_isPaused ? 'Resume' : 'Pause'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 32, vertical: 16),
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _stop,
+                  icon: const Icon(Icons.stop),
+                  label: const Text('Stop'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 32, vertical: 16),
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
           ],
         ),
       ),
-    );
-  }
-
-  /// Build the progress bar with percentage labels
-  Widget _buildProgressBar({
-    required double progressBarHeight,
-    required double borderWidth,
-    required double percentComplete,
-    required double percentRemaining,
-  }) {
-    return Row(
-      children: [
-        // Left percentage (completed - black text on left)
-        SizedBox(
-          width: 70,
-          child: Text(
-            '${percentComplete.toStringAsFixed(1)}%',
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              color: Colors.grey[600],
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        // Progress bar
-        Expanded(
-          child: Container(
-            height: progressBarHeight,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: Colors.white,
-                width: borderWidth,
-              ),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: Stack(
-                children: [
-                  // Black background
-                  Container(color: Colors.black),
-                  // White fill (progress from left to right)
-                  FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: _progressPercent,
-                    child: Container(color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        // Right percentage (remaining - white text on right)
-        SizedBox(
-          width: 70,
-          child: Text(
-            '${percentRemaining.toStringAsFixed(1)}%',
-            textAlign: TextAlign.left,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

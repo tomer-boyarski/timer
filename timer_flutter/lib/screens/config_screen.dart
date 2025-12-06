@@ -42,7 +42,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     if (mounted) {
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => TimerScreen(config: _config!),
+          builder: (context) => TimerScreen(stages: _config!.stages),
         ),
       );
     }
