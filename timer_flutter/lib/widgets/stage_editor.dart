@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/models.dart';
 
 /// Widget for editing a sub-stage configuration.
@@ -83,7 +84,7 @@ class SubStageEditor extends StatelessWidget {
   }
 }
 
-/// Duration input widget (MM:SS format)
+/// Duration input widget (MM:SS format) with proper focus handling
 class _DurationInput extends StatefulWidget {
   final String label;
   final int seconds;
@@ -102,31 +103,49 @@ class _DurationInput extends StatefulWidget {
 class _DurationInputState extends State<_DurationInput> {
   late TextEditingController _minutesController;
   late TextEditingController _secondsController;
+  final FocusNode _minutesFocus = FocusNode();
+  final FocusNode _secondsFocus = FocusNode();
+  bool _isEditing = false;
 
   @override
   void initState() {
     super.initState();
-    _updateControllers();
+    _minutesController = TextEditingController();
+    _secondsController = TextEditingController();
+    _updateControllersFromWidget();
+
+    // Track focus to avoid updating while user is editing
+    _minutesFocus.addListener(_onFocusChanged);
+    _secondsFocus.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    final wasFocused = _isEditing;
+    _isEditing = _minutesFocus.hasFocus || _secondsFocus.hasFocus;
+
+    // When losing focus, sync with parent
+    if (wasFocused && !_isEditing) {
+      _notifyParent();
+    }
   }
 
   @override
   void didUpdateWidget(_DurationInput oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.seconds != widget.seconds) {
-      _updateControllers();
+    // Only update controllers if not currently editing and value changed externally
+    if (!_isEditing && oldWidget.seconds != widget.seconds) {
+      _updateControllersFromWidget();
     }
   }
 
-  void _updateControllers() {
+  void _updateControllersFromWidget() {
     final minutes = widget.seconds ~/ 60;
     final seconds = widget.seconds % 60;
-    _minutesController = TextEditingController(text: minutes.toString());
-    _secondsController = TextEditingController(
-      text: seconds.toString().padLeft(2, '0'),
-    );
+    _minutesController.text = minutes.toString();
+    _secondsController.text = seconds.toString().padLeft(2, '0');
   }
 
-  void _onChanged() {
+  void _notifyParent() {
     final minutes = int.tryParse(_minutesController.text) ?? 0;
     final seconds = int.tryParse(_secondsController.text) ?? 0;
     widget.onChanged(minutes * 60 + seconds);
@@ -147,13 +166,18 @@ class _DurationInputState extends State<_DurationInput> {
               width: 30,
               child: TextField(
                 controller: _minutesController,
+                focusNode: _minutesFocus,
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(3),
+                ],
                 decoration: const InputDecoration(
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(vertical: 8),
                 ),
-                onChanged: (_) => _onChanged(),
+                onSubmitted: (_) => _notifyParent(),
               ),
             ),
             const Text(':'),
@@ -161,13 +185,18 @@ class _DurationInputState extends State<_DurationInput> {
               width: 30,
               child: TextField(
                 controller: _secondsController,
+                focusNode: _secondsFocus,
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(2),
+                ],
                 decoration: const InputDecoration(
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(vertical: 8),
                 ),
-                onChanged: (_) => _onChanged(),
+                onSubmitted: (_) => _notifyParent(),
               ),
             ),
           ],
@@ -178,6 +207,10 @@ class _DurationInputState extends State<_DurationInput> {
 
   @override
   void dispose() {
+    _minutesFocus.removeListener(_onFocusChanged);
+    _secondsFocus.removeListener(_onFocusChanged);
+    _minutesFocus.dispose();
+    _secondsFocus.dispose();
     _minutesController.dispose();
     _secondsController.dispose();
     super.dispose();
@@ -215,12 +248,8 @@ class StageEditor extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: TextField(
-                controller: TextEditingController(text: stage.title),
-                decoration: const InputDecoration(
-                  labelText: 'Stage Title',
-                  border: InputBorder.none,
-                ),
+              child: _StageTitleInput(
+                title: stage.title,
                 onChanged: (value) {
                   onChanged(stage.copyWith(title: value));
                 },
@@ -316,7 +345,72 @@ class StageEditor extends StatelessWidget {
   }
 }
 
-/// Duration input for stage (larger format)
+/// Stage title input with proper focus handling
+class _StageTitleInput extends StatefulWidget {
+  final String title;
+  final ValueChanged<String> onChanged;
+
+  const _StageTitleInput({
+    required this.title,
+    required this.onChanged,
+  });
+
+  @override
+  State<_StageTitleInput> createState() => _StageTitleInputState();
+}
+
+class _StageTitleInputState extends State<_StageTitleInput> {
+  late TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+  bool _isEditing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.title);
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    final wasFocused = _isEditing;
+    _isEditing = _focusNode.hasFocus;
+
+    if (wasFocused && !_isEditing) {
+      widget.onChanged(_controller.text);
+    }
+  }
+
+  @override
+  void didUpdateWidget(_StageTitleInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_isEditing && oldWidget.title != widget.title) {
+      _controller.text = widget.title;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      focusNode: _focusNode,
+      decoration: const InputDecoration(
+        labelText: 'Stage Title',
+        border: InputBorder.none,
+      ),
+      onSubmitted: (value) => widget.onChanged(value),
+    );
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_onFocusChanged);
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+}
+
+/// Duration input for stage (larger format) with proper focus handling
 class _StageDurationInput extends StatefulWidget {
   final int seconds;
   final ValueChanged<int> onChanged;
@@ -333,31 +427,46 @@ class _StageDurationInput extends StatefulWidget {
 class _StageDurationInputState extends State<_StageDurationInput> {
   late TextEditingController _minutesController;
   late TextEditingController _secondsController;
+  final FocusNode _minutesFocus = FocusNode();
+  final FocusNode _secondsFocus = FocusNode();
+  bool _isEditing = false;
 
   @override
   void initState() {
     super.initState();
-    _updateControllers();
+    _minutesController = TextEditingController();
+    _secondsController = TextEditingController();
+    _updateControllersFromWidget();
+
+    _minutesFocus.addListener(_onFocusChanged);
+    _secondsFocus.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    final wasFocused = _isEditing;
+    _isEditing = _minutesFocus.hasFocus || _secondsFocus.hasFocus;
+
+    if (wasFocused && !_isEditing) {
+      _notifyParent();
+    }
   }
 
   @override
   void didUpdateWidget(_StageDurationInput oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.seconds != widget.seconds) {
-      _updateControllers();
+    if (!_isEditing && oldWidget.seconds != widget.seconds) {
+      _updateControllersFromWidget();
     }
   }
 
-  void _updateControllers() {
+  void _updateControllersFromWidget() {
     final minutes = widget.seconds ~/ 60;
     final seconds = widget.seconds % 60;
-    _minutesController = TextEditingController(text: minutes.toString());
-    _secondsController = TextEditingController(
-      text: seconds.toString().padLeft(2, '0'),
-    );
+    _minutesController.text = minutes.toString();
+    _secondsController.text = seconds.toString().padLeft(2, '0');
   }
 
-  void _onChanged() {
+  void _notifyParent() {
     final minutes = int.tryParse(_minutesController.text) ?? 0;
     final seconds = int.tryParse(_secondsController.text) ?? 0;
     widget.onChanged(minutes * 60 + seconds);
@@ -378,15 +487,20 @@ class _StageDurationInputState extends State<_StageDurationInput> {
             width: 40,
             child: TextField(
               controller: _minutesController,
+              focusNode: _minutesFocus,
               keyboardType: TextInputType.number,
               textAlign: TextAlign.center,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(3),
+              ],
               decoration: const InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.zero,
               ),
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              onChanged: (_) => _onChanged(),
+              onSubmitted: (_) => _notifyParent(),
             ),
           ),
           const Text(':',
@@ -395,15 +509,20 @@ class _StageDurationInputState extends State<_StageDurationInput> {
             width: 40,
             child: TextField(
               controller: _secondsController,
+              focusNode: _secondsFocus,
               keyboardType: TextInputType.number,
               textAlign: TextAlign.center,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(2),
+              ],
               decoration: const InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.zero,
               ),
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              onChanged: (_) => _onChanged(),
+              onSubmitted: (_) => _notifyParent(),
             ),
           ),
         ],
@@ -413,6 +532,10 @@ class _StageDurationInputState extends State<_StageDurationInput> {
 
   @override
   void dispose() {
+    _minutesFocus.removeListener(_onFocusChanged);
+    _secondsFocus.removeListener(_onFocusChanged);
+    _minutesFocus.dispose();
+    _secondsFocus.dispose();
     _minutesController.dispose();
     _secondsController.dispose();
     super.dispose();

@@ -34,6 +34,12 @@ dependencies:
   # TTS for announcements
   stts: ^1.2.6
   
+  # Audio playback for pre-generated audio files
+  just_audio: ^0.9.40
+  
+  # Process for Windows TTS generation
+  # (uses dart:io Process)
+  
   # UUID for unique stage IDs
   uuid: ^4.2.1
   

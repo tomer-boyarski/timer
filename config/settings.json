@@ -1,6 +1,6 @@
 {
-    "prep_duration": "25s",
-    "main_duration": "7m20s",
+    "prep_duration": "40s",
+    "main_duration": "8m",
     "audio_offset": 1,
     "stages": [
         {
@@ -18,7 +18,7 @@
         {
             "name": "everything",
             "duration_threshold": 0,
-            "announcement_interval": 60,
+            "announcement_interval": 30,
             "verbosity": "high"
         }
     ],
