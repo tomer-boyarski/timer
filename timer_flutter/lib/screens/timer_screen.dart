@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../models/models.dart';
 import '../services/audio_service.dart';
 
@@ -16,7 +17,7 @@ class TimerScreen extends StatefulWidget {
 
 class _TimerScreenState extends State<TimerScreen> {
   final AudioService _audioService = AudioService();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  AudioPlayer? _audioPlayer; // Only used on Windows
 
   bool _isGeneratingAudio = false;
   bool _isRunning = false;
@@ -25,9 +26,12 @@ class _TimerScreenState extends State<TimerScreen> {
 
   // Timer state
   int _currentStageIndex = 0;
-  int _stageElapsedSeconds = 0; // Elapsed seconds within current stage
+  int _stageElapsedSeconds = 0;
   int _totalElapsedSeconds = 0;
   Timer? _timer;
+
+  // Platform checks
+  bool get _isWindows => !kIsWeb && Platform.isWindows;
 
   // Computed values
   int get _totalDurationSeconds =>
@@ -48,15 +52,16 @@ class _TimerScreenState extends State<TimerScreen> {
   @override
   void initState() {
     super.initState();
-    _generateAudioAndStart();
+    _startTimerWithAudio();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _audioPlayer.dispose();
+    _audioPlayer?.dispose();
+    _audioService.dispose();
     // Clean up audio file
-    if (_audioFilePath != null) {
+    if (_audioFilePath != null && !kIsWeb) {
       try {
         File(_audioFilePath!).deleteSync();
       } catch (_) {}
@@ -64,46 +69,64 @@ class _TimerScreenState extends State<TimerScreen> {
     super.dispose();
   }
 
-  Future<void> _generateAudioAndStart() async {
-    setState(() {
-      _isGeneratingAudio = true;
-    });
+  Future<void> _startTimerWithAudio() async {
+    if (_isWindows) {
+      // Windows: Pre-generate audio file first
+      setState(() {
+        _isGeneratingAudio = true;
+      });
 
-    try {
-      // Generate the audio file using Windows SAPI
-      final audioPath = await _audioService.generateFullAudio(widget.stages);
+      try {
+        final audioPath = await _audioService.startAnnouncementPlayback(
+          widget.stages,
+          const Duration(seconds: 1), // 1 second offset for Windows speakers
+          () {}, // Not used for Windows
+        );
 
-      if (mounted) {
-        _audioFilePath = audioPath;
+        if (audioPath != null && mounted) {
+          _audioFilePath = audioPath;
 
-        // Load and start playing
-        await _audioPlayer.setFilePath(audioPath);
-        await _audioPlayer.play();
+          // Create audio player and start playback
+          _audioPlayer = AudioPlayer();
+          await _audioPlayer!.play(DeviceFileSource(audioPath));
 
-        setState(() {
-          _isGeneratingAudio = false;
-          _isRunning = true;
-        });
+          setState(() {
+            _isGeneratingAudio = false;
+            _isRunning = true;
+          });
 
-        _startTimer();
-      } else if (mounted) {
-        // Audio generation failed, but we can still run the timer silently
-        setState(() {
-          _isGeneratingAudio = false;
-          _isRunning = true;
-        });
-        _startTimer();
+          // Wait for audio offset before starting visual timer
+          await Future.delayed(const Duration(seconds: 1));
+          _startTimer();
+        } else if (mounted) {
+          // Audio generation failed, start timer without audio
+          setState(() {
+            _isGeneratingAudio = false;
+            _isRunning = true;
+          });
+          _startTimer();
+        }
+      } catch (e) {
+        debugPrint('Error generating audio: $e');
+        if (mounted) {
+          setState(() {
+            _isGeneratingAudio = false;
+            _isRunning = true;
+          });
+          _startTimer();
+        }
       }
-    } catch (e) {
-      debugPrint('Error generating audio: $e');
-      if (mounted) {
-        // Start timer anyway without audio
-        setState(() {
-          _isGeneratingAudio = false;
-          _isRunning = true;
-        });
-        _startTimer();
-      }
+    } else {
+      // Android/iOS/Web: Use real-time TTS with scheduled timers
+      setState(() {
+        _isRunning = true;
+      });
+
+      await _audioService.startAnnouncementPlayback(
+        widget.stages,
+        Duration.zero, // No offset needed for real-time TTS
+        _startTimer,
+      );
     }
   }
 
@@ -137,16 +160,19 @@ class _TimerScreenState extends State<TimerScreen> {
       _isPaused = !_isPaused;
     });
 
-    if (_isPaused) {
-      _audioPlayer.pause();
-    } else {
-      _audioPlayer.play();
+    if (_isWindows && _audioPlayer != null) {
+      if (_isPaused) {
+        _audioPlayer!.pause();
+      } else {
+        _audioPlayer!.resume();
+      }
     }
   }
 
   void _stop() {
     _timer?.cancel();
-    _audioPlayer.stop();
+    _audioPlayer?.stop();
+    _audioService.stop();
     Navigator.of(context).pop();
   }
 

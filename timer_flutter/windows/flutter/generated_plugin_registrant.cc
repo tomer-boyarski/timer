@@ -6,9 +6,12 @@
 
 #include "generated_plugin_registrant.h"
 
-#include <stts/stts_plugin_c_api.h>
+#include <audioplayers_windows/audioplayers_windows_plugin.h>
+#include <flutter_tts/flutter_tts_plugin.h>
 
 void RegisterPlugins(flutter::PluginRegistry* registry) {
-  SttsPluginCApiRegisterWithRegistrar(
-      registry->GetRegistrarForPlugin("SttsPluginCApi"));
+  AudioplayersWindowsPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("AudioplayersWindowsPlugin"));
+  FlutterTtsPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FlutterTtsPlugin"));
 }

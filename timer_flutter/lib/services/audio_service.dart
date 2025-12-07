@@ -2,9 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:stts/stts.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import '../models/models.dart';
 
 /// Represents an announcement to be made at a specific time.
@@ -29,40 +28,57 @@ class Announcement {
   });
 }
 
-/// Audio service that pre-generates a single audio file for the entire timer.
-/// On Windows, this solves hardware speaker delay issues by syncing audio
-/// with a fixed offset before the visual timer starts.
+/// Audio service that handles TTS announcements.
+///
+/// Platform-specific behavior:
+/// - Windows: Pre-generates a single WAV file with all announcements timed correctly.
+///   This is because the Windows PC uses external speakers with hardware delay.
+///   Reusable announcements (countdown numbers) are cached and reused across stages.
+/// - Android/iOS/Web: Uses real-time TTS with scheduled timers. No pre-generation needed.
 class AudioService {
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  final Tts _tts = Tts();
+  final FlutterTts _tts = FlutterTts();
   bool _isInitialized = false;
   String? _generatedAudioPath;
   final List<Timer> _scheduledTimers = [];
 
+  /// Cache for pre-generated audio segments (Windows only)
+  /// Key is the announcement text, value is (audioBytes, duration)
+  final Map<String, (Uint8List, double)> _audioCache = {};
+
   /// Callback when an announcement is spoken
   Function(String text)? onAnnouncementSpoken;
 
-  /// Audio sample parameters
+  /// Audio sample parameters for Windows WAV generation
   static const int sampleRate = 22050;
   static const int channels = 1;
   static const int bitsPerSample = 16;
+
+  /// Platform checks
+  bool get _isWindows => !kIsWeb && Platform.isWindows;
+  bool get _isAndroid => !kIsWeb && Platform.isAndroid;
+  bool get _isWeb => kIsWeb;
 
   /// Initialize TTS engine (for non-Windows platforms)
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     if (!_isWindows) {
-      await _tts.setLanguage('en-US');
-      // Double speed: 0.8 instead of 0.5
-      await _tts.setRate(0.8);
-      await _tts.setVolume(1.0);
-      await _tts.setPitch(1.0);
+      try {
+        // For Web and mobile platforms, use flutter_tts package
+        await _tts.setLanguage('en-US');
+        // Fast speech rate (0.0 to 1.0 for flutter_tts, where 0.5 is normal)
+        await _tts
+            .setSpeechRate(_isWeb ? 0.6 : 0.55); // Slightly faster than normal
+        await _tts.setVolume(1.0);
+        await _tts.setPitch(1.0);
+        debugPrint('TTS initialized for ${_isWeb ? "Web" : "Mobile"}');
+      } catch (e) {
+        debugPrint('TTS initialization error: $e');
+      }
     }
 
     _isInitialized = true;
   }
-
-  bool get _isWindows => !kIsWeb && Platform.isWindows;
 
   /// Generate all announcements for the given stages with absolute timing
   /// Skips countdown for stages less than 10 seconds
@@ -140,12 +156,38 @@ class AudioService {
     return countdownWords.contains(trimmed);
   }
 
+  /// Get unique announcement texts that need to be generated
+  /// Stage titles are unique per stage; everything else can be reused
+  Set<String> _getUniqueAnnouncementTexts(List<Announcement> announcements) {
+    return announcements.map((a) => a.text).toSet();
+  }
+
+  /// Pre-generate all unique audio segments (Windows only)
+  /// This caches reusable segments like countdown numbers
+  Future<void> _preGenerateAudioSegments(
+      List<Announcement> announcements) async {
+    final uniqueTexts = _getUniqueAnnouncementTexts(announcements);
+
+    debugPrint('Pre-generating ${uniqueTexts.length} unique audio segments...');
+
+    for (final text in uniqueTexts) {
+      if (!_audioCache.containsKey(text)) {
+        final isCountdown = _isCountdownNumber(text);
+        final (audio, duration) =
+            await _generateSpeechWindows(text, fast: isCountdown);
+        _audioCache[text] = (audio, duration);
+        debugPrint('Cached: "$text" (${duration.toStringAsFixed(2)}s)');
+      }
+    }
+
+    debugPrint('Audio cache ready with ${_audioCache.length} segments');
+  }
+
   /// Generate silence bytes
   Uint8List _generateSilence(double durationSeconds) {
     final numSamples = (durationSeconds * sampleRate).round();
     // 16-bit silence = 0
-    final bytes = Uint8List(numSamples * 2);
-    return bytes;
+    return Uint8List(numSamples * 2);
   }
 
   /// Generate WAV file header
@@ -159,7 +201,7 @@ class AudioService {
     header.setUint8(1, 0x49); // I
     header.setUint8(2, 0x46); // F
     header.setUint8(3, 0x46); // F
-    header.setUint32(4, 36 + dataSize, Endian.little); // File size - 8
+    header.setUint32(4, 36 + dataSize, Endian.little);
     header.setUint8(8, 0x57); // W
     header.setUint8(9, 0x41); // A
     header.setUint8(10, 0x56); // V
@@ -170,8 +212,8 @@ class AudioService {
     header.setUint8(13, 0x6D); // m
     header.setUint8(14, 0x74); // t
     header.setUint8(15, 0x20); // space
-    header.setUint32(16, 16, Endian.little); // Chunk size
-    header.setUint16(20, 1, Endian.little); // Audio format (PCM)
+    header.setUint32(16, 16, Endian.little);
+    header.setUint16(20, 1, Endian.little); // PCM
     header.setUint16(22, channels, Endian.little);
     header.setUint32(24, sampleRate, Endian.little);
     header.setUint32(28, byteRate, Endian.little);
@@ -189,24 +231,21 @@ class AudioService {
   }
 
   /// Generate speech audio using Windows SAPI via PowerShell
-  /// Returns audio bytes and actual duration
   Future<(Uint8List, double)> _generateSpeechWindows(String text,
       {bool fast = false}) async {
     final tempDir = await getTemporaryDirectory();
+    // Use forward slashes for path (works on Windows too)
     final tempPath =
-        '${tempDir.path}\\tts_temp_${DateTime.now().millisecondsSinceEpoch}.wav';
+        '${tempDir.path}/tts_temp_${DateTime.now().millisecondsSinceEpoch}.wav';
 
-    // Escape text for PowerShell - escape both single quotes and special chars
+    // Escape text for PowerShell
     final escapedText =
         text.replaceAll("'", "''").replaceAll('\n', ' ').replaceAll('\r', ' ');
 
     // SAPI rate: -10 to 10, higher is faster
-    // Rate 4 is normal-fast, rate 8 is very fast for countdown
-    // Double the speed: normal was 2, now 4; fast was 7, now 10
+    // Rate 4 for normal, 10 for countdown (fastest)
     final rate = fast ? 10 : 4;
 
-    // PowerShell script to generate WAV using SAPI
-    // Use -NoProfile -NonInteractive for faster execution
     final script = '''
 Add-Type -AssemblyName System.Speech
 \$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
@@ -222,7 +261,10 @@ Add-Type -AssemblyName System.Speech
       final result = await Process.run(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command', script],
-      );
+      ).timeout(const Duration(seconds: 10), onTimeout: () {
+        debugPrint('TTS generation timed out for: "$text"');
+        return ProcessResult(0, 1, '', 'Timeout');
+      });
 
       if (result.exitCode != 0) {
         debugPrint('PowerShell TTS error: ${result.stderr}');
@@ -259,19 +301,16 @@ Add-Type -AssemblyName System.Speech
   Uint8List _extractAndResampleWav(Uint8List wavBytes) {
     if (wavBytes.length < 44) return _generateSilence(0.1);
 
-    // Parse WAV header to get source sample rate
     final byteData = ByteData.view(wavBytes.buffer);
     final sourceSampleRate = byteData.getUint32(24, Endian.little);
-    final dataStart = 44; // Standard WAV header size
+    final dataStart = 44;
 
-    // Get audio data
     final audioData = wavBytes.sublist(dataStart);
 
     if (sourceSampleRate == sampleRate) {
       return audioData;
     }
 
-    // Resample
     return _resample(audioData, sourceSampleRate, sampleRate);
   }
 
@@ -281,7 +320,6 @@ Add-Type -AssemblyName System.Speech
     if (numSamples == 0) return Uint8List(0);
 
     final samples = Int16List.view(audioBytes.buffer);
-
     final ratio = toRate / fromRate;
     final newLength = (numSamples * ratio).round();
     if (newLength == 0) return Uint8List(0);
@@ -305,6 +343,7 @@ Add-Type -AssemblyName System.Speech
   }
 
   /// Generate complete audio file for all stages (Windows only)
+  /// Uses cached audio segments for efficiency
   Future<String> generateFullAudio(List<Stage> stages) async {
     debugPrint('Starting audio generation for ${stages.length} stages');
 
@@ -314,13 +353,14 @@ Add-Type -AssemblyName System.Speech
     debugPrint('Total announcements: ${announcements.length}');
     debugPrint('Total duration: ${totalDuration}s');
 
+    // Pre-generate all unique audio segments (uses cache)
+    await _preGenerateAudioSegments(announcements);
+
     final audioChunks = <Uint8List>[];
     var currentPosition = 0.0;
 
     for (int i = 0; i < announcements.length; i++) {
       final announcement = announcements[i];
-      debugPrint(
-          'Processing announcement ${i + 1}/${announcements.length}: "${announcement.text}" at ${announcement.timeFromStart}s');
 
       // Add silence up to this announcement
       final silenceDuration = announcement.timeFromStart - currentPosition;
@@ -329,15 +369,14 @@ Add-Type -AssemblyName System.Speech
         currentPosition = announcement.timeFromStart;
       }
 
-      // Generate speech
-      final (speechAudio, speechDuration) = await _generateSpeechWindows(
-        announcement.text,
-        fast: announcement.isCountdown,
-      );
-      audioChunks.add(speechAudio);
-      currentPosition += speechDuration;
+      // Get cached audio
+      final cached = _audioCache[announcement.text];
+      if (cached != null) {
+        final (speechAudio, speechDuration) = cached;
+        audioChunks.add(speechAudio);
+        currentPosition += speechDuration;
+      }
 
-      // Notify about announcement (during generation)
       onAnnouncementSpoken?.call(announcement.text);
     }
 
@@ -361,7 +400,7 @@ Add-Type -AssemblyName System.Speech
     // Create WAV file
     final tempDir = await getTemporaryDirectory();
     final outputPath =
-        '${tempDir.path}\\timer_audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+        '${tempDir.path}/timer_audio_${DateTime.now().millisecondsSinceEpoch}.wav';
 
     final header = _createWavHeader(combinedAudio.length);
     final wavFile = File(outputPath);
@@ -372,19 +411,15 @@ Add-Type -AssemblyName System.Speech
     return outputPath;
   }
 
-  /// Start audio playback (returns when audio starts)
-  Future<void> startAudioPlayback(String audioPath) async {
-    debugPrint('Starting audio playback: $audioPath');
-    await _audioPlayer.setFilePath(audioPath);
-    await _audioPlayer.play();
-  }
-
-  /// Speak text immediately using real-time TTS (non-Windows)
+  /// Speak text immediately using real-time TTS
   Future<void> speak(String text) async {
     await initialize();
+
+    debugPrint(
+        'Speaking: "$text" (platform: ${_isWindows ? "Windows" : (_isWeb ? "Web" : "Mobile")})');
+
     if (_isWindows) {
       // On Windows, use PowerShell for immediate TTS
-      // Doubled speed: rate 4 instead of 2
       final script = '''
 Add-Type -AssemblyName System.Speech
 \$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
@@ -395,15 +430,23 @@ Add-Type -AssemblyName System.Speech
       await Process.run('powershell.exe',
           ['-NoProfile', '-NonInteractive', '-Command', script]);
     } else {
-      await _tts.start(text);
+      // Android/iOS/Web: use flutter_tts package
+      try {
+        debugPrint('Using flutter_tts.speak() for: "$text"');
+        await _tts.speak(text);
+        debugPrint('flutter_tts.speak() completed for: "$text"');
+      } catch (e) {
+        debugPrint('TTS speak error: $e');
+      }
     }
+
     onAnnouncementSpoken?.call(text);
   }
 
   /// Start announcement playback synchronized with timer
-  /// On Windows: Pre-generates audio file, plays it, then calls onTimerStart after offset
+  /// On Windows: Pre-generates audio file, returns path for external player
   /// On other platforms: Schedules TTS announcements with timers
-  Future<void> startAnnouncementPlayback(
+  Future<String?> startAnnouncementPlayback(
     List<Stage> stages,
     Duration audioOffset,
     VoidCallback onTimerStart,
@@ -415,58 +458,54 @@ Add-Type -AssemblyName System.Speech
         // Windows: Generate audio file first
         debugPrint('Windows mode: generating audio file...');
         final audioPath = await generateFullAudio(stages);
-        debugPrint('Audio generated, starting playback...');
+        debugPrint('Audio generated: $audioPath');
 
-        // Start audio playback
-        await startAudioPlayback(audioPath);
-        debugPrint('Audio playback started, waiting for offset...');
-
-        // After offset, start the visual timer
-        await Future.delayed(audioOffset);
-        debugPrint('Starting visual timer');
-        onTimerStart();
+        // Return the path - timer screen will handle playback
+        return audioPath;
       } catch (e) {
-        debugPrint('Error in Windows audio playback: $e');
-        // Fallback: start timer without audio
-        onTimerStart();
+        debugPrint('Error in Windows audio generation: $e');
+        return null;
       }
     } else {
-      // Other platforms: Use real-time TTS with scheduled timers
+      // Android/iOS/Web: Use real-time TTS with scheduled timers
+      // Start timer immediately
       onTimerStart();
 
       final announcements = generateTimedAnnouncements(stages);
 
       for (final announcement in announcements) {
         final delay = Duration(
-              milliseconds: (announcement.timeFromStart * 1000).round(),
-            ) +
-            audioOffset;
+          milliseconds: (announcement.timeFromStart * 1000).round(),
+        );
 
-        if (delay.isNegative) {
+        if (delay.inMilliseconds <= 0) {
           speak(announcement.text);
         } else {
           final timer = Timer(delay, () => speak(announcement.text));
           _scheduledTimers.add(timer);
         }
       }
+
+      return null; // No audio file for non-Windows
     }
   }
 
   /// Stop all audio and scheduled announcements
   Future<void> stop() async {
-    await _audioPlayer.stop();
     for (final timer in _scheduledTimers) {
       timer.cancel();
     }
     _scheduledTimers.clear();
-    await _tts.stop();
+
+    try {
+      await _tts.stop();
+    } catch (_) {}
   }
 
   /// Dispose resources
   void dispose() {
     stop();
-    _audioPlayer.dispose();
-    _tts.dispose();
+    _audioCache.clear();
 
     // Clean up generated audio file
     if (_generatedAudioPath != null) {

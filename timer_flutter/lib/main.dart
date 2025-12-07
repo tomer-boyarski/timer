@@ -13,12 +13,18 @@ class TimerApp extends StatelessWidget {
     return MaterialApp(
       title: 'Timer',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: Colors.black,
-        primaryColor: Colors.blue,
-        colorScheme: const ColorScheme.dark(
-          primary: Colors.blue,
-          secondary: Colors.green,
+      // Match system theme (light/dark)
+      themeMode: ThemeMode.system,
+      theme: ThemeData.light().copyWith(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.light,
+        ),
+      ),
+      darkTheme: ThemeData.dark().copyWith(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.dark,
         ),
       ),
       home: const ConfigScreen(),

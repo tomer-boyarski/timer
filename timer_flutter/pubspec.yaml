@@ -31,11 +31,11 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # TTS for announcements
-  stts: ^1.2.6
+  # TTS for announcements (cross-platform)
+  flutter_tts: ^4.2.0
   
-  # Audio playback for pre-generated audio files
-  just_audio: ^0.9.40
+  # Audio playback for pre-generated audio files (Windows)
+  audioplayers: ^5.2.1
   
   # Process for Windows TTS generation
   # (uses dart:io Process)
