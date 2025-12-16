@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -33,7 +35,8 @@ class Announcement {
 /// Platform-specific behavior:
 /// - Windows: Pre-generates a single WAV file with all announcements timed correctly.
 ///   This is because the Windows PC uses external speakers with hardware delay.
-///   Reusable announcements (countdown numbers) are cached and reused across stages.
+///   Reusable announcements (countdown numbers) are cached in memory AND persisted to disk.
+///   Disk cache significantly improves startup time on subsequent runs.
 /// - Android/iOS/Web: Uses real-time TTS with scheduled timers. No pre-generation needed.
 class AudioService {
   final FlutterTts _tts = FlutterTts();
@@ -41,9 +44,12 @@ class AudioService {
   String? _generatedAudioPath;
   final List<Timer> _scheduledTimers = [];
 
-  /// Cache for pre-generated audio segments (Windows only)
+  /// Memory cache for pre-generated audio segments (Windows only)
   /// Key is the announcement text, value is (audioBytes, duration)
   final Map<String, (Uint8List, double)> _audioCache = {};
+
+  /// Directory for persistent audio cache
+  Directory? _audioCacheDir;
 
   /// Callback when an announcement is spoken
   Function(String text)? onAnnouncementSpoken;
@@ -162,25 +168,110 @@ class AudioService {
     return announcements.map((a) => a.text).toSet();
   }
 
+  /// Initialize audio cache directory (Windows only)
+  Future<void> _initAudioCacheDir() async {
+    if (_audioCacheDir != null) return;
+
+    final appDir = await getApplicationDocumentsDirectory();
+    _audioCacheDir = Directory('${appDir.path}/timer_audio_cache');
+
+    if (!await _audioCacheDir!.exists()) {
+      await _audioCacheDir!.create(recursive: true);
+      debugPrint('Created audio cache directory: ${_audioCacheDir!.path}');
+    }
+  }
+
+  /// Generate a cache filename from announcement text
+  /// Uses MD5 hash to create valid filename from any text
+  String _getCacheFilename(String text, bool fast) {
+    final key = '$text|${fast ? "fast" : "normal"}';
+    final hash = md5.convert(utf8.encode(key)).toString();
+    return '$hash.wav';
+  }
+
+  /// Load audio from disk cache if available
+  Future<(Uint8List, double)?> _loadFromDiskCache(
+      String text, bool fast) async {
+    if (_audioCacheDir == null) return null;
+
+    final filename = _getCacheFilename(text, fast);
+    final file = File('${_audioCacheDir!.path}/$filename');
+
+    if (await file.exists()) {
+      try {
+        final bytes = await file.readAsBytes();
+        if (bytes.length > 44) {
+          final audioData = _extractAndResampleWav(bytes);
+          final duration = audioData.length / (sampleRate * 2);
+          debugPrint(
+              'Loaded from disk cache: "$text" (${duration.toStringAsFixed(2)}s)');
+          return (audioData, duration);
+        }
+      } catch (e) {
+        debugPrint('Error loading from disk cache: $e');
+      }
+    }
+
+    return null;
+  }
+
+  /// Save audio to disk cache
+  Future<void> _saveToDiskCache(
+      String text, bool fast, Uint8List audioData) async {
+    if (_audioCacheDir == null) return;
+
+    final filename = _getCacheFilename(text, fast);
+    final file = File('${_audioCacheDir!.path}/$filename');
+
+    try {
+      // Create WAV file with header
+      final header = _createWavHeader(audioData.length);
+      await file.writeAsBytes([...header, ...audioData]);
+      debugPrint('Saved to disk cache: "$text"');
+    } catch (e) {
+      debugPrint('Error saving to disk cache: $e');
+    }
+  }
+
   /// Pre-generate all unique audio segments (Windows only)
-  /// This caches reusable segments like countdown numbers
+  /// Loads from disk cache if available, generates and saves if not
   Future<void> _preGenerateAudioSegments(
       List<Announcement> announcements) async {
     final uniqueTexts = _getUniqueAnnouncementTexts(announcements);
 
     debugPrint('Pre-generating ${uniqueTexts.length} unique audio segments...');
 
+    // Initialize disk cache
+    await _initAudioCacheDir();
+
+    int diskHits = 0;
+    int generated = 0;
+
     for (final text in uniqueTexts) {
       if (!_audioCache.containsKey(text)) {
         final isCountdown = _isCountdownNumber(text);
-        final (audio, duration) =
-            await _generateSpeechWindows(text, fast: isCountdown);
-        _audioCache[text] = (audio, duration);
-        debugPrint('Cached: "$text" (${duration.toStringAsFixed(2)}s)');
+        
+        // Try loading from disk cache first
+        var result = await _loadFromDiskCache(text, isCountdown);
+        
+        if (result != null) {
+          // Cache hit - use existing file
+          _audioCache[text] = result;
+          diskHits++;
+        } else {
+          // Cache miss - generate and save
+          final (audio, duration) =
+              await _generateSpeechWindows(text, fast: isCountdown);
+          _audioCache[text] = (audio, duration);
+          await _saveToDiskCache(text, isCountdown, audio);
+          generated++;
+          debugPrint('Generated: "$text" (${duration.toStringAsFixed(2)}s)');
+        }
       }
     }
 
-    debugPrint('Audio cache ready with ${_audioCache.length} segments');
+    debugPrint(
+        'Audio cache ready: ${_audioCache.length} segments ($diskHits from disk, $generated generated)');
   }
 
   /// Generate silence bytes

@@ -6,6 +6,10 @@ import 'package:audioplayers/audioplayers.dart';
 import '../models/models.dart';
 import '../services/audio_service.dart';
 
+// Configurable audio offset for Windows speakers
+// Use --dart-define=AUDIO_OFFSET=0 to disable offset for debugging with laptop speakers
+const int audioOffsetSeconds = int.fromEnvironment('AUDIO_OFFSET', defaultValue: 1);
+
 class TimerScreen extends StatefulWidget {
   final List<Stage> stages;
 
@@ -79,7 +83,7 @@ class _TimerScreenState extends State<TimerScreen> {
       try {
         final audioPath = await _audioService.startAnnouncementPlayback(
           widget.stages,
-          const Duration(seconds: 1), // 1 second offset for Windows speakers
+          Duration(seconds: audioOffsetSeconds), // Configurable offset
           () {}, // Not used for Windows
         );
 
@@ -96,7 +100,7 @@ class _TimerScreenState extends State<TimerScreen> {
           });
 
           // Wait for audio offset before starting visual timer
-          await Future.delayed(const Duration(seconds: 1));
+          await Future.delayed(Duration(seconds: audioOffsetSeconds));
           _startTimer();
         } else if (mounted) {
           // Audio generation failed, start timer without audio
