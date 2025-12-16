@@ -6,10 +6,6 @@ import 'package:audioplayers/audioplayers.dart';
 import '../models/models.dart';
 import '../services/audio_service.dart';
 
-// Configurable audio offset for Windows speakers
-// Use --dart-define=AUDIO_OFFSET=0 to disable offset for debugging with laptop speakers
-const int audioOffsetSeconds = int.fromEnvironment('AUDIO_OFFSET', defaultValue: 1);
-
 class TimerScreen extends StatefulWidget {
   final List<Stage> stages;
 
@@ -30,8 +26,8 @@ class _TimerScreenState extends State<TimerScreen> {
 
   // Timer state
   int _currentStageIndex = 0;
-  int _stageElapsedSeconds = 0;
-  int _totalElapsedSeconds = 0;
+  int _stageElapsedTenths = 0; // Elapsed time in tenths of seconds
+  int _totalElapsedTenths = 0; // Elapsed time in tenths of seconds
   Timer? _timer;
 
   // Platform checks
@@ -41,15 +37,15 @@ class _TimerScreenState extends State<TimerScreen> {
   int get _totalDurationSeconds =>
       widget.stages.fold(0, (sum, s) => sum + s.durationSeconds);
   Stage get _currentStage => widget.stages[_currentStageIndex];
-  int get _stageRemainingSeconds =>
-      _currentStage.durationSeconds - _stageElapsedSeconds;
-  int get _totalRemainingSeconds =>
-      _totalDurationSeconds - _totalElapsedSeconds;
+  int get _stageRemainingTenths =>
+      (_currentStage.durationSeconds * 10) - _stageElapsedTenths;
+  int get _totalRemainingTenths =>
+      (_totalDurationSeconds * 10) - _totalElapsedTenths;
 
   // Progress is now per-stage (0.0 to 1.0)
   double get _stageProgressPercent {
     if (_currentStage.durationSeconds == 0) return 0.0;
-    return (_stageElapsedSeconds / _currentStage.durationSeconds)
+    return (_stageElapsedTenths / (_currentStage.durationSeconds * 10))
         .clamp(0.0, 1.0);
   }
 
@@ -83,7 +79,7 @@ class _TimerScreenState extends State<TimerScreen> {
       try {
         final audioPath = await _audioService.startAnnouncementPlayback(
           widget.stages,
-          Duration(seconds: audioOffsetSeconds), // Configurable offset
+          Duration.zero, // No offset needed
           () {}, // Not used for Windows
         );
 
@@ -99,8 +95,7 @@ class _TimerScreenState extends State<TimerScreen> {
             _isRunning = true;
           });
 
-          // Wait for audio offset before starting visual timer
-          await Future.delayed(Duration(seconds: audioOffsetSeconds));
+          // Start visual timer immediately with audio
           _startTimer();
         } else if (mounted) {
           // Audio generation failed, start timer without audio
@@ -135,18 +130,18 @@ class _TimerScreenState extends State<TimerScreen> {
   }
 
   void _startTimer() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!_isPaused && mounted) {
         setState(() {
-          _totalElapsedSeconds++;
-          _stageElapsedSeconds++;
+          _totalElapsedTenths++;
+          _stageElapsedTenths++;
 
-          // Check if current stage is complete
-          if (_stageElapsedSeconds >= _currentStage.durationSeconds) {
+          // Check if current stage is complete (every 10 tenths = 1 second)
+          if (_stageElapsedTenths >= _currentStage.durationSeconds * 10) {
             if (_currentStageIndex < widget.stages.length - 1) {
               // Move to next stage
               _currentStageIndex++;
-              _stageElapsedSeconds = 0;
+              _stageElapsedTenths = 0;
             } else {
               // Timer complete
               _timer?.cancel();
@@ -200,15 +195,17 @@ class _TimerScreenState extends State<TimerScreen> {
     );
   }
 
-  String _formatTime(int totalSeconds) {
+  String _formatTime(int totalTenths) {
+    final totalSeconds = totalTenths ~/ 10;
+    final tenths = totalTenths % 10;
     final hours = totalSeconds ~/ 3600;
     final minutes = (totalSeconds % 3600) ~/ 60;
     final seconds = totalSeconds % 60;
 
     if (hours > 0) {
-      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}.$tenths';
     }
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}.$tenths';
   }
 
   @override
@@ -282,50 +279,44 @@ class _TimerScreenState extends State<TimerScreen> {
 
             // Stage time remaining (large display)
             Center(
-              child: Text(
-                _formatTime(_stageRemainingSeconds),
-                style: const TextStyle(
-                  fontSize: 72,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // Total time remaining (smaller)
-            Center(
-              child: Text(
-                'Total: ${_formatTime(_totalRemainingSeconds)}',
-                style: TextStyle(
-                  fontSize: 24,
-                  color: Colors.grey[600],
-                  fontFamily: 'monospace',
-                ),
+              child: Column(
+                children: [
+                  Text(
+                    _formatTime(_stageRemainingTenths),
+                    style: const TextStyle(
+                      fontSize: 72,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${percentComplete.toStringAsFixed(1)}%',
+                    style: const TextStyle(
+                      fontSize: 72,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
               ),
             ),
 
             const SizedBox(height: 32),
 
-            // Stage progress bar
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Stage Progress: ${percentComplete.toStringAsFixed(0)}%',
-                  style: const TextStyle(fontSize: 16),
+            // Stage progress bar (3x thicker)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                value: _stageProgressPercent,
+                minHeight: 60,
+                backgroundColor: Colors.grey[300],
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  Theme.of(context).brightness == Brightness.dark
+                      ? Colors.grey[700]!
+                      : Theme.of(context).colorScheme.primary,
                 ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: _stageProgressPercent,
-                    minHeight: 20,
-                    backgroundColor: Colors.grey[300],
-                  ),
-                ),
-              ],
+              ),
             ),
 
             const Spacer(),

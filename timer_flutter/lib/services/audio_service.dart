@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../models/models.dart';
+import '../config/audio_config.dart';
 
 /// Represents an announcement to be made at a specific time.
 class Announcement {
@@ -55,9 +56,9 @@ class AudioService {
   Function(String text)? onAnnouncementSpoken;
 
   /// Audio sample parameters for Windows WAV generation
-  static const int sampleRate = 22050;
-  static const int channels = 1;
-  static const int bitsPerSample = 16;
+  static const int sampleRate = AudioConfig.sampleRate;
+  static const int channels = AudioConfig.channels;
+  static const int bitsPerSample = AudioConfig.bitsPerSample;
 
   /// Platform checks
   bool get _isWindows => !kIsWeb && Platform.isWindows;
@@ -88,6 +89,7 @@ class AudioService {
 
   /// Generate all announcements for the given stages with absolute timing
   /// Skips countdown for stages less than 10 seconds
+  /// Filters out announcements that would overlap with stage title duration
   List<Announcement> generateTimedAnnouncements(List<Stage> stages) {
     final announcements = <Announcement>[];
     var stageStartOffset = 0.0;
@@ -96,11 +98,12 @@ class AudioService {
       final stageDuration = stage.durationSeconds.toDouble();
 
       // Stage title at start of stage (always announce)
-      announcements.add(Announcement(
+      final stageTitleAnnouncement = Announcement(
         timeFromStart: stageStartOffset,
         text: stage.title,
         isStageTitle: true,
-      ));
+      );
+      announcements.add(stageTitleAnnouncement);
 
       // Only add regular announcements if stage is >= 10 seconds
       if (stage.durationSeconds >= 10) {
@@ -183,18 +186,16 @@ class AudioService {
 
   /// Generate a cache filename from announcement text
   /// Uses MD5 hash to create valid filename from any text
-  String _getCacheFilename(String text, bool fast) {
-    final key = '$text|${fast ? "fast" : "normal"}';
-    final hash = md5.convert(utf8.encode(key)).toString();
+  String _getCacheFilename(String text) {
+    final hash = md5.convert(utf8.encode(text)).toString();
     return '$hash.wav';
   }
 
   /// Load audio from disk cache if available
-  Future<(Uint8List, double)?> _loadFromDiskCache(
-      String text, bool fast) async {
+  Future<(Uint8List, double)?> _loadFromDiskCache(String text) async {
     if (_audioCacheDir == null) return null;
 
-    final filename = _getCacheFilename(text, fast);
+    final filename = _getCacheFilename(text);
     final file = File('${_audioCacheDir!.path}/$filename');
 
     if (await file.exists()) {
@@ -216,11 +217,10 @@ class AudioService {
   }
 
   /// Save audio to disk cache
-  Future<void> _saveToDiskCache(
-      String text, bool fast, Uint8List audioData) async {
+  Future<void> _saveToDiskCache(String text, Uint8List audioData) async {
     if (_audioCacheDir == null) return;
 
-    final filename = _getCacheFilename(text, fast);
+    final filename = _getCacheFilename(text);
     final file = File('${_audioCacheDir!.path}/$filename');
 
     try {
@@ -249,21 +249,18 @@ class AudioService {
 
     for (final text in uniqueTexts) {
       if (!_audioCache.containsKey(text)) {
-        final isCountdown = _isCountdownNumber(text);
-        
         // Try loading from disk cache first
-        var result = await _loadFromDiskCache(text, isCountdown);
-        
+        var result = await _loadFromDiskCache(text);
+
         if (result != null) {
           // Cache hit - use existing file
           _audioCache[text] = result;
           diskHits++;
         } else {
           // Cache miss - generate and save
-          final (audio, duration) =
-              await _generateSpeechWindows(text, fast: isCountdown);
+          final (audio, duration) = await _generateSpeechWindows(text);
           _audioCache[text] = (audio, duration);
-          await _saveToDiskCache(text, isCountdown, audio);
+          await _saveToDiskCache(text, audio);
           generated++;
           debugPrint('Generated: "$text" (${duration.toStringAsFixed(2)}s)');
         }
@@ -272,6 +269,41 @@ class AudioService {
 
     debugPrint(
         'Audio cache ready: ${_audioCache.length} segments ($diskHits from disk, $generated generated)');
+  }
+
+  /// Filter out announcements that would overlap with previous announcements
+  /// This prevents rapid-fire announcements when stage titles are long
+  List<Announcement> _filterOverlappingAnnouncements(
+      List<Announcement> announcements) {
+    final filtered = <Announcement>[];
+    double nextAvailableTime = 0.0;
+
+    for (final announcement in announcements) {
+      // Get the duration of this announcement from cache
+      final cached = _audioCache[announcement.text];
+      if (cached == null) {
+        // If not cached, skip it (shouldn't happen)
+        continue;
+      }
+
+      final (_, duration) = cached;
+
+      // Check if this announcement would start before the previous one ends
+      if (announcement.timeFromStart >= nextAvailableTime) {
+        // No overlap - include this announcement
+        filtered.add(announcement);
+        nextAvailableTime = announcement.timeFromStart + duration;
+
+        // Add a small buffer (0.05s) between announcements
+        nextAvailableTime += 0.05;
+      } else {
+        // Overlap detected - skip this announcement
+        debugPrint(
+            'Skipping overlapping announcement: "${announcement.text}" at ${announcement.timeFromStart.toStringAsFixed(2)}s (previous ends at ${nextAvailableTime.toStringAsFixed(2)}s)');
+      }
+    }
+
+    return filtered;
   }
 
   /// Generate silence bytes
@@ -322,8 +354,8 @@ class AudioService {
   }
 
   /// Generate speech audio using Windows SAPI via PowerShell
-  Future<(Uint8List, double)> _generateSpeechWindows(String text,
-      {bool fast = false}) async {
+  /// Uses uniform speech rate from AudioConfig for all announcements
+  Future<(Uint8List, double)> _generateSpeechWindows(String text) async {
     final tempDir = await getTemporaryDirectory();
     // Use forward slashes for path (works on Windows too)
     final tempPath =
@@ -333,9 +365,9 @@ class AudioService {
     final escapedText =
         text.replaceAll("'", "''").replaceAll('\n', ' ').replaceAll('\r', ' ');
 
-    // SAPI rate: -10 to 10, higher is faster
-    // Rate 4 for normal, 10 for countdown (fastest)
-    final rate = fast ? 10 : 4;
+    // Use uniform rate from AudioConfig for all announcements
+    // This ensures countdown numbers take ~0.9s each while keeping speech natural
+    final rate = AudioConfig.sapiRate;
 
     final script = '''
 Add-Type -AssemblyName System.Speech
@@ -447,11 +479,17 @@ Add-Type -AssemblyName System.Speech
     // Pre-generate all unique audio segments (uses cache)
     await _preGenerateAudioSegments(announcements);
 
+    // Filter out announcements that overlap with previous ones
+    final filteredAnnouncements =
+        _filterOverlappingAnnouncements(announcements);
+    debugPrint(
+        'Filtered announcements: ${filteredAnnouncements.length} (removed ${announcements.length - filteredAnnouncements.length} overlapping)');
+
     final audioChunks = <Uint8List>[];
     var currentPosition = 0.0;
 
-    for (int i = 0; i < announcements.length; i++) {
-      final announcement = announcements[i];
+    for (int i = 0; i < filteredAnnouncements.length; i++) {
+      final announcement = filteredAnnouncements[i];
 
       // Add silence up to this announcement
       final silenceDuration = announcement.timeFromStart - currentPosition;
