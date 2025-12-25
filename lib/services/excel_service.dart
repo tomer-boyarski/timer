@@ -233,7 +233,8 @@ class ExcelService {
 
       // Get today's date
       final today = DateTime.now();
-      final dateStr = DateFormat('M/d/yyyy').format(today);
+      // Save date in dd/MM/yyyy format per user preference
+      final dateStr = DateFormat('dd/MM/yyyy').format(today);
 
       // Write date to column A
       sheet.updateCell(
