@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/models.dart';
 import '../services/audio_service.dart';
+import 'completion_screen.dart';
 
 class TimerScreen extends StatefulWidget {
   final List<Stage> stages;
@@ -146,7 +147,7 @@ class _TimerScreenState extends State<TimerScreen> {
               // Timer complete
               _timer?.cancel();
               _isRunning = false;
-              _showCompletionDialog();
+              _showCompletionScreen();
             }
           }
         });
@@ -175,22 +176,14 @@ class _TimerScreenState extends State<TimerScreen> {
     Navigator.of(context).pop();
   }
 
-  void _showCompletionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Timer Complete!'),
-        content: const Text('All stages have been completed.'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
-              Navigator.of(context).pop(); // Return to config
-            },
-            child: const Text('OK'),
-          ),
-        ],
+  void _showCompletionScreen() {
+    // Navigate to completion screen, replacing this screen
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => CompletionScreen(
+          stages: widget.stages,
+          audioService: _audioService,
+        ),
       ),
     );
   }

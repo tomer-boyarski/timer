@@ -15,8 +15,10 @@ class ConfigScreen extends StatefulWidget {
 
 class _ConfigScreenState extends State<ConfigScreen> {
   final ConfigManager _configManager = ConfigManager();
+  final ExcelService _excelService = ExcelService();
   TimerConfig? _config;
   bool _isLoading = true;
+  String? _loadSource; // Track where config was loaded from
 
   @override
   void initState() {
@@ -25,11 +27,31 @@ class _ConfigScreenState extends State<ConfigScreen> {
   }
 
   Future<void> _loadConfig() async {
-    final config = await _configManager.loadConfig();
-    setState(() {
-      _config = config;
-      _isLoading = false;
-    });
+    // First try to load from Excel
+    final excelSession = await _excelService.readLastSession();
+
+    if (excelSession != null) {
+      // Create stages from Excel data with +5s run bonus
+      final stages = Stage.fromExcelSession(excelSession);
+      setState(() {
+        _config = TimerConfig(
+          stages: stages,
+          audioOffset: TimerConfig.getPlatformAudioOffset(),
+          ttsRateNormal: 180,
+          ttsRateCountdown: 250,
+        );
+        _loadSource = 'Excel (last session + 5s run)';
+        _isLoading = false;
+      });
+    } else {
+      // Fall back to saved config or defaults
+      final config = await _configManager.loadConfig();
+      setState(() {
+        _config = config;
+        _loadSource = 'Default configuration';
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _saveAndStart() async {
@@ -144,24 +166,40 @@ class _ConfigScreenState extends State<ConfigScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.black,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Total Duration: ${_formatTotalDuration()}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Total Duration: ${_formatTotalDuration()}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '${_config!.stages.length} stage${_config!.stages.length != 1 ? 's' : ''}',
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  '${_config!.stages.length} stage${_config!.stages.length != 1 ? 's' : ''}',
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 14,
+                if (_loadSource != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Loaded from: $_loadSource',
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
           ),

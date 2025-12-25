@@ -1,4 +1,5 @@
 import 'sub_stage.dart';
+import '../services/excel_service.dart';
 
 /// Stage model representing a timed segment with title and sub-stages.
 ///
@@ -17,11 +18,15 @@ class Stage {
   /// Sub-stages for announcement configuration
   final List<SubStage> subStages;
 
+  /// Whether this stage duration should be saved to Excel
+  final bool savesToExcel;
+
   const Stage({
     required this.id,
     required this.title,
     required this.durationSeconds,
     required this.subStages,
+    this.savesToExcel = true,
   });
 
   /// Create from JSON map
@@ -33,6 +38,7 @@ class Stage {
       subStages: (json['sub_stages'] as List<dynamic>)
           .map((e) => SubStage.fromJson(e as Map<String, dynamic>))
           .toList(),
+      savesToExcel: json['saves_to_excel'] as bool? ?? true,
     );
   }
 
@@ -43,6 +49,7 @@ class Stage {
       'title': title,
       'duration_seconds': durationSeconds,
       'sub_stages': subStages.map((s) => s.toJson()).toList(),
+      'saves_to_excel': savesToExcel,
     };
   }
 
@@ -52,12 +59,14 @@ class Stage {
     String? title,
     int? durationSeconds,
     List<SubStage>? subStages,
+    bool? savesToExcel,
   }) {
     return Stage(
       id: id ?? this.id,
       title: title ?? this.title,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       subStages: subStages ?? this.subStages,
+      savesToExcel: savesToExcel ?? this.savesToExcel,
     );
   }
 
@@ -149,32 +158,136 @@ class Stage {
     return announcements;
   }
 
-  /// Default stages configuration
+  /// Default stages configuration matching Excel columns
+  /// Column mapping:
+  /// - initialization (3s fixed, not in Excel)
+  /// - prep_ekg (5s fixed, not in Excel)
+  /// - prep_treadmill -> "Prepare to turn on treadmill"
+  /// - treadmill_countdown -> "Treadmill countdown"
+  /// - accelerate -> "Accelerate"
+  /// - run -> "Run"
+  /// - decelerate -> "Decelerate"
+  /// - walk -> "Walk"
   static List<Stage> defaultStages() {
     final defaultSubStages = SubStage.defaultSubStages();
     return [
       Stage(
-        id: 'preparation',
-        title: 'Preparation',
-        durationSeconds: 30,
+        id: 'initialization',
+        title: 'Initialization',
+        durationSeconds: ExcelColumnMapping.initializationDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false, // Fixed duration, not saved
+      ),
+      Stage(
+        id: 'prep_ekg',
+        title: 'Prepare to turn on EKG',
+        durationSeconds: ExcelColumnMapping.prepEkgDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false, // Fixed duration, not saved
+      ),
+      Stage(
+        id: 'prep_treadmill',
+        title: 'Prepare to turn on treadmill',
+        durationSeconds: 10,
         subStages: defaultSubStages,
       ),
       Stage(
-        id: 'start',
-        title: 'Start',
-        durationSeconds: 3,
+        id: 'treadmill_countdown',
+        title: 'Treadmill countdown',
+        durationSeconds: ExcelColumnMapping.treadmillCountdownDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false, // Fixed duration
+      ),
+      Stage(
+        id: 'accelerate',
+        title: 'Accelerate',
+        durationSeconds: ExcelColumnMapping.accelerateDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false, // Fixed duration
+      ),
+      Stage(
+        id: 'run',
+        title: 'Run',
+        durationSeconds: 300, // 5 minutes default
         subStages: defaultSubStages,
       ),
       Stage(
-        id: 'go',
-        title: 'Go',
-        durationSeconds: 455, // 7 minutes 35 seconds
+        id: 'decelerate',
+        title: 'Decelerate',
+        durationSeconds: ExcelColumnMapping.decelerateDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false, // Fixed duration
+      ),
+      Stage(
+        id: 'walk',
+        title: 'Walk',
+        durationSeconds: ExcelColumnMapping.defaultWalkDuration,
+        subStages: defaultSubStages,
+      ),
+    ];
+  }
+
+  /// Create stages from Excel session data
+  /// Uses last session durations with +5 seconds on run
+  static List<Stage> fromExcelSession(SessionData session) {
+    final defaultSubStages = SubStage.defaultSubStages();
+    final durations = ExcelService.addRunBonus(session.stageDurations);
+
+    return [
+      Stage(
+        id: 'initialization',
+        title: 'Initialization',
+        durationSeconds: ExcelColumnMapping.initializationDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false,
+      ),
+      Stage(
+        id: 'prep_ekg',
+        title: 'Prepare to turn on EKG',
+        durationSeconds: ExcelColumnMapping.prepEkgDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false,
+      ),
+      Stage(
+        id: 'prep_treadmill',
+        title: 'Prepare to turn on treadmill',
+        durationSeconds: durations['prep_treadmill'] ??
+            ExcelColumnMapping.defaultPrepTreadmillDuration,
         subStages: defaultSubStages,
       ),
       Stage(
-        id: 'cooldown',
-        title: 'Cool Down',
-        durationSeconds: 120, // 2 minutes
+        id: 'treadmill_countdown',
+        title: 'Treadmill countdown',
+        durationSeconds: ExcelColumnMapping.treadmillCountdownDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false, // Fixed duration
+      ),
+      Stage(
+        id: 'accelerate',
+        title: 'Accelerate',
+        durationSeconds: ExcelColumnMapping.accelerateDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false, // Fixed duration
+      ),
+      Stage(
+        id: 'run',
+        title: 'Run',
+        durationSeconds:
+            durations['run'] ?? ExcelColumnMapping.defaultRunDuration,
+        subStages: defaultSubStages,
+      ),
+      Stage(
+        id: 'decelerate',
+        title: 'Decelerate',
+        durationSeconds: ExcelColumnMapping.decelerateDuration,
+        subStages: defaultSubStages,
+        savesToExcel: false, // Fixed duration
+      ),
+      Stage(
+        id: 'walk',
+        title: 'Walk',
+        durationSeconds:
+            durations['walk'] ?? ExcelColumnMapping.defaultWalkDuration,
         subStages: defaultSubStages,
       ),
     ];
