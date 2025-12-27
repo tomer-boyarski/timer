@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "description": "Secondary stages configuration. Primary stages (prep_treadmill, run, walk) are loaded from Excel.",
+  "secondary_stages": [
+    {
+      "id": "prep_ekg",
+      "title": "Prepare to turn on EKG",
+      "duration_seconds": 5,
+      "position": "before_prep_treadmill",
+      "order": 0
+    },
+    {
+      "id": "treadmill_countdown",
+      "title": "Treadmill countdown",
+      "duration_seconds": 5,
+      "position": "before_run",
+      "order": 0
+    },
+    {
+      "id": "accelerate",
+      "title": "Accelerate",
+      "duration_seconds": 15,
+      "position": "before_run",
+      "order": 1
+    },
+    {
+      "id": "decelerate",
+      "title": "Decelerate",
+      "duration_seconds": 12,
+      "position": "before_walk",
+      "order": 0
+    }
+  ],
+  "primary_stages_order": [
+    "prep_treadmill",
+    "run",
+    "walk"
+  ],
+  "last_updated": "2025-12-27T18:38:51.002144"
+}

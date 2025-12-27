@@ -316,8 +316,8 @@ class AudioService {
   /// Generate WAV file header
   Uint8List _createWavHeader(int dataSize) {
     final header = ByteData(44);
-    final byteRate = sampleRate * channels * bitsPerSample ~/ 8;
-    final blockAlign = channels * bitsPerSample ~/ 8;
+    const byteRate = sampleRate * channels * bitsPerSample ~/ 8;
+    const blockAlign = channels * bitsPerSample ~/ 8;
 
     // RIFF header
     header.setUint8(0, 0x52); // R
@@ -367,7 +367,7 @@ class AudioService {
 
     // Use uniform rate from AudioConfig for all announcements
     // This ensures countdown numbers take ~0.9s each while keeping speech natural
-    final rate = AudioConfig.sapiRate;
+    const rate = AudioConfig.sapiRate;
 
     final script = '''
 Add-Type -AssemblyName System.Speech
@@ -426,7 +426,7 @@ Add-Type -AssemblyName System.Speech
 
     final byteData = ByteData.view(wavBytes.buffer);
     final sourceSampleRate = byteData.getUint32(24, Endian.little);
-    final dataStart = 44;
+    const dataStart = 44;
 
     final audioData = wavBytes.sublist(dataStart);
 

@@ -16,6 +16,7 @@ class ConfigScreen extends StatefulWidget {
 class _ConfigScreenState extends State<ConfigScreen> {
   final ConfigManager _configManager = ConfigManager();
   final ExcelService _excelService = ExcelService();
+  final StagesConfigService _stagesConfigService = StagesConfigService();
   TimerConfig? _config;
   bool _isLoading = true;
   String? _loadSource; // Track where config was loaded from
@@ -27,12 +28,19 @@ class _ConfigScreenState extends State<ConfigScreen> {
   }
 
   Future<void> _loadConfig() async {
-    // First try to load from Excel
+    // Load secondary stages config
+    final stagesConfig = await _stagesConfigService.loadConfig();
+
+    // Try to load primary stages from Excel
     final excelSession = await _excelService.readLastSession();
 
     if (excelSession != null) {
-      // Create stages from Excel data with +5s run bonus
-      final stages = Stage.fromExcelSession(excelSession);
+      // Merge Excel data (primary stages) with config (secondary stages)
+      final primaryDurations =
+          ExcelService.addRunBonus(excelSession.stageDurations);
+      final stages =
+          _stagesConfigService.buildStageList(primaryDurations, stagesConfig);
+
       setState(() {
         _config = TimerConfig(
           stages: stages,
@@ -40,7 +48,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
           ttsRateNormal: 180,
           ttsRateCountdown: 250,
         );
-        _loadSource = 'Excel (last session + 5s run)';
+        _loadSource = 'Excel + stages_config.json';
         _isLoading = false;
       });
     } else {
@@ -57,8 +65,11 @@ class _ConfigScreenState extends State<ConfigScreen> {
   Future<void> _saveAndStart() async {
     if (_config == null) return;
 
-    // Save configuration
+    // Save full configuration (for backward compatibility)
     await _configManager.saveConfig(_config!);
+
+    // Save secondary stages to the stages_config.json file
+    await _stagesConfigService.saveFromStages(_config!.stages);
 
     // Navigate to timer screen
     if (mounted) {

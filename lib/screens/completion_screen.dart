@@ -136,15 +136,15 @@ class _CompletionScreenState extends State<CompletionScreen>
               // Celebration animation
               ScaleTransition(
                 scale: _scaleAnimation,
-                child: Column(
+                child: const Column(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.celebration,
                       size: 80,
                       color: Colors.amber,
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
+                    SizedBox(height: 16),
+                    Text(
                       '🎉 Congratulations! 🎉',
                       style: TextStyle(
                         fontSize: 32,
@@ -153,8 +153,8 @@ class _CompletionScreenState extends State<CompletionScreen>
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
+                    SizedBox(height: 8),
+                    Text(
                       'All stages completed!',
                       style: TextStyle(
                         fontSize: 18,
