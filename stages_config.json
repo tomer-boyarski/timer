@@ -1,40 +1,215 @@
 {
   "version": 1,
-  "description": "Secondary stages configuration. Primary stages (prep_treadmill, run, walk) are loaded from Excel.",
-  "secondary_stages": [
+  "stages": [
+    {
+      "id": "initialization",
+      "title": "Initialization",
+      "duration_seconds": 3,
+      "sub_stages": [
+        {
+          "name": "countdown",
+          "duration_threshold": 10,
+          "announcement_interval": 1,
+          "verbosity": "low"
+        },
+        {
+          "name": "one_minute",
+          "duration_threshold": 60,
+          "announcement_interval": 10,
+          "verbosity": "high"
+        },
+        {
+          "name": "everything",
+          "duration_threshold": 0,
+          "announcement_interval": 60,
+          "verbosity": "high"
+        }
+      ],
+      "saves_to_excel": false
+    },
     {
       "id": "prep_ekg",
       "title": "Prepare to turn on EKG",
       "duration_seconds": 5,
-      "position": "before_prep_treadmill",
-      "order": 0
+      "sub_stages": [
+        {
+          "name": "countdown",
+          "duration_threshold": 10,
+          "announcement_interval": 1,
+          "verbosity": "low"
+        },
+        {
+          "name": "one_minute",
+          "duration_threshold": 60,
+          "announcement_interval": 10,
+          "verbosity": "high"
+        },
+        {
+          "name": "everything",
+          "duration_threshold": 0,
+          "announcement_interval": 60,
+          "verbosity": "high"
+        }
+      ],
+      "saves_to_excel": false
+    },
+    {
+      "id": "prep_treadmill",
+      "title": "Prepare to turn on treadmill",
+      "duration_seconds": 10,
+      "sub_stages": [
+        {
+          "name": "countdown",
+          "duration_threshold": 10,
+          "announcement_interval": 1,
+          "verbosity": "low"
+        },
+        {
+          "name": "one_minute",
+          "duration_threshold": 60,
+          "announcement_interval": 10,
+          "verbosity": "high"
+        },
+        {
+          "name": "everything",
+          "duration_threshold": 0,
+          "announcement_interval": 60,
+          "verbosity": "high"
+        }
+      ],
+      "saves_to_excel": true
     },
     {
       "id": "treadmill_countdown",
       "title": "Treadmill countdown",
       "duration_seconds": 5,
-      "position": "before_run",
-      "order": 0
+      "sub_stages": [
+        {
+          "name": "countdown",
+          "duration_threshold": 10,
+          "announcement_interval": 1,
+          "verbosity": "low"
+        },
+        {
+          "name": "one_minute",
+          "duration_threshold": 60,
+          "announcement_interval": 10,
+          "verbosity": "high"
+        },
+        {
+          "name": "everything",
+          "duration_threshold": 0,
+          "announcement_interval": 60,
+          "verbosity": "high"
+        }
+      ],
+      "saves_to_excel": false
     },
     {
       "id": "accelerate",
       "title": "Accelerate",
       "duration_seconds": 15,
-      "position": "before_run",
-      "order": 1
+      "sub_stages": [
+        {
+          "name": "countdown",
+          "duration_threshold": 10,
+          "announcement_interval": 1,
+          "verbosity": "low"
+        },
+        {
+          "name": "one_minute",
+          "duration_threshold": 60,
+          "announcement_interval": 10,
+          "verbosity": "high"
+        },
+        {
+          "name": "everything",
+          "duration_threshold": 0,
+          "announcement_interval": 60,
+          "verbosity": "high"
+        }
+      ],
+      "saves_to_excel": false
+    },
+    {
+      "id": "run",
+      "title": "Run",
+      "duration_seconds": 560,
+      "sub_stages": [
+        {
+          "name": "countdown",
+          "duration_threshold": 10,
+          "announcement_interval": 1,
+          "verbosity": "low"
+        },
+        {
+          "name": "one_minute",
+          "duration_threshold": 60,
+          "announcement_interval": 10,
+          "verbosity": "high"
+        },
+        {
+          "name": "everything",
+          "duration_threshold": 0,
+          "announcement_interval": 60,
+          "verbosity": "high"
+        }
+      ],
+      "saves_to_excel": true
     },
     {
       "id": "decelerate",
       "title": "Decelerate",
       "duration_seconds": 12,
-      "position": "before_walk",
-      "order": 0
+      "sub_stages": [
+        {
+          "name": "countdown",
+          "duration_threshold": 10,
+          "announcement_interval": 1,
+          "verbosity": "low"
+        },
+        {
+          "name": "one_minute",
+          "duration_threshold": 60,
+          "announcement_interval": 10,
+          "verbosity": "high"
+        },
+        {
+          "name": "everything",
+          "duration_threshold": 0,
+          "announcement_interval": 60,
+          "verbosity": "high"
+        }
+      ],
+      "saves_to_excel": false
+    },
+    {
+      "id": "walk",
+      "title": "Walk",
+      "duration_seconds": 180,
+      "sub_stages": [
+        {
+          "name": "countdown",
+          "duration_threshold": 10,
+          "announcement_interval": 1,
+          "verbosity": "low"
+        },
+        {
+          "name": "one_minute",
+          "duration_threshold": 60,
+          "announcement_interval": 10,
+          "verbosity": "high"
+        },
+        {
+          "name": "everything",
+          "duration_threshold": 0,
+          "announcement_interval": 60,
+          "verbosity": "high"
+        }
+      ],
+      "saves_to_excel": true
     }
   ],
-  "primary_stages_order": [
-    "prep_treadmill",
-    "run",
-    "walk"
-  ],
-  "last_updated": "2025-12-27T18:38:51.002144"
+  "last_updated": "2025-12-28T10:32:20.299739",
+  "has_been_customized": true
 }

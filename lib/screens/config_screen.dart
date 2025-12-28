@@ -15,7 +15,6 @@ class ConfigScreen extends StatefulWidget {
 
 class _ConfigScreenState extends State<ConfigScreen> {
   final ConfigManager _configManager = ConfigManager();
-  final ExcelService _excelService = ExcelService();
   final StagesConfigService _stagesConfigService = StagesConfigService();
   TimerConfig? _config;
   bool _isLoading = true;
@@ -28,38 +27,19 @@ class _ConfigScreenState extends State<ConfigScreen> {
   }
 
   Future<void> _loadConfig() async {
-    // Load secondary stages config
-    final stagesConfig = await _stagesConfigService.loadConfig();
+    // Load stages from config file (or create initial from Excel if first launch)
+    final stages = await _stagesConfigService.loadStages();
 
-    // Try to load primary stages from Excel
-    final excelSession = await _excelService.readLastSession();
-
-    if (excelSession != null) {
-      // Merge Excel data (primary stages) with config (secondary stages)
-      final primaryDurations =
-          ExcelService.addRunBonus(excelSession.stageDurations);
-      final stages =
-          _stagesConfigService.buildStageList(primaryDurations, stagesConfig);
-
-      setState(() {
-        _config = TimerConfig(
-          stages: stages,
-          audioOffset: TimerConfig.getPlatformAudioOffset(),
-          ttsRateNormal: 180,
-          ttsRateCountdown: 250,
-        );
-        _loadSource = 'Excel + stages_config.json';
-        _isLoading = false;
-      });
-    } else {
-      // Fall back to saved config or defaults
-      final config = await _configManager.loadConfig();
-      setState(() {
-        _config = config;
-        _loadSource = 'Default configuration';
-        _isLoading = false;
-      });
-    }
+    setState(() {
+      _config = TimerConfig(
+        stages: stages,
+        audioOffset: TimerConfig.getPlatformAudioOffset(),
+        ttsRateNormal: 180,
+        ttsRateCountdown: 250,
+      );
+      _loadSource = 'stages_config.json';
+      _isLoading = false;
+    });
   }
 
   Future<void> _saveAndStart() async {
@@ -68,8 +48,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
     // Save full configuration (for backward compatibility)
     await _configManager.saveConfig(_config!);
 
-    // Save secondary stages to the stages_config.json file
-    await _stagesConfigService.saveFromStages(_config!.stages);
+    // Save ALL stages to the stages_config.json file
+    await _stagesConfigService.saveStages(_config!.stages);
 
     // Navigate to timer screen
     if (mounted) {
