@@ -80,8 +80,10 @@ class StagesConfigService {
         final config = StagesConfig.fromJson(json);
 
         if (config.hasStages) {
-          debugPrint('Loaded ${config.stages.length} stages from: $_configPath');
-          debugPrint('Last updated: ${config.lastUpdated != null ? DateFormat('dd/MM/yyyy HH:mm:ss').format(config.lastUpdated!) : 'never'}');
+          debugPrint(
+              'Loaded ${config.stages.length} stages from: $_configPath');
+          debugPrint(
+              'Last updated: ${config.lastUpdated != null ? DateFormat('dd/MM/yyyy HH:mm:ss').format(config.lastUpdated!) : 'never'}');
           return config;
         }
       }
@@ -105,11 +107,13 @@ class StagesConfigService {
         hasBeenCustomized: true,
       );
 
-      final jsonStr = const JsonEncoder.withIndent('  ').convert(config.toJson());
+      final jsonStr =
+          const JsonEncoder.withIndent('  ').convert(config.toJson());
       await file.writeAsString(jsonStr);
 
       debugPrint('Saved ${stages.length} stages to: $_configPath');
-      debugPrint('Stages: ${stages.map((s) => '${s.title} (${s.durationSeconds}s)').join(', ')}');
+      debugPrint(
+          'Stages: ${stages.map((s) => '${s.title} (${s.durationSeconds}s)').join(', ')}');
       return true;
     } catch (e) {
       debugPrint('Error saving stages config: $e');
@@ -157,7 +161,7 @@ class StagesConfigService {
         Stage(
           id: 'treadmill_countdown',
           title: 'Treadmill countdown',
-          durationSeconds: 5,
+          durationSeconds: 3,
           subStages: defaultSubStages,
           savesToExcel: false,
         ),
@@ -198,11 +202,15 @@ class StagesConfigService {
   }
 
   /// Load stages - from config if exists, otherwise create initial stages
+  /// Always refreshes primary stage durations from Excel with +5s run bonus
   Future<List<Stage>> loadStages() async {
-    // First try to load from config file
+    // First try to load from config file (for secondary stages structure)
     final config = await loadConfig();
+
     if (config != null && config.hasStages) {
-      return config.stages;
+      // Config exists - refresh primary stages from Excel with +5s bonus
+      final refreshedStages = await refreshFromExcel(config.stages);
+      return refreshedStages;
     }
 
     // No config exists, create initial stages from Excel + defaults

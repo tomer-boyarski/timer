@@ -2,35 +2,9 @@
   "version": 1,
   "stages": [
     {
-      "id": "initialization",
-      "title": "Initialization",
-      "duration_seconds": 3,
-      "sub_stages": [
-        {
-          "name": "countdown",
-          "duration_threshold": 10,
-          "announcement_interval": 1,
-          "verbosity": "low"
-        },
-        {
-          "name": "one_minute",
-          "duration_threshold": 60,
-          "announcement_interval": 10,
-          "verbosity": "high"
-        },
-        {
-          "name": "everything",
-          "duration_threshold": 0,
-          "announcement_interval": 60,
-          "verbosity": "high"
-        }
-      ],
-      "saves_to_excel": false
-    },
-    {
       "id": "prep_ekg",
       "title": "Prepare to turn on EKG",
-      "duration_seconds": 5,
+      "duration_seconds": 12,
       "sub_stages": [
         {
           "name": "countdown",
@@ -82,7 +56,7 @@
     {
       "id": "treadmill_countdown",
       "title": "Treadmill countdown",
-      "duration_seconds": 5,
+      "duration_seconds": 3,
       "sub_stages": [
         {
           "name": "countdown",
@@ -134,7 +108,7 @@
     {
       "id": "run",
       "title": "Run",
-      "duration_seconds": 560,
+      "duration_seconds": 565,
       "sub_stages": [
         {
           "name": "countdown",
@@ -210,6 +184,6 @@
       "saves_to_excel": true
     }
   ],
-  "last_updated": "2025-12-28T10:32:20.299739",
+  "last_updated": "2025-12-29T13:04:07.860738",
   "has_been_customized": true
 }
